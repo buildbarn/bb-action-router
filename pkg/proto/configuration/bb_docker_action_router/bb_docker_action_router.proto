@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package buildbarn.configuration.bb_docker_action_router;
+
+import "google/protobuf/duration.proto";
+import "github.com/buildbarn/bb-storage/pkg/proto/configuration/blobstore/blobstore.proto";
+import "github.com/buildbarn/bb-storage/pkg/proto/configuration/global/global.proto";
+import "github.com/buildbarn/bb-storage/pkg/proto/configuration/grpc/grpc.proto";
+import "github.com/buildbarn/bb-action-router/pkg/proto/configuration/registry_auth/registry_auth.proto";
+
+option go_package = "github.com/buildbarn/bb-action-router/pkg/proto/configuration/bb_docker_action_router";
+
+message ApplicationConfiguration {
+  // gRPC servers to spawn to listen for RouteAction requests from
+  // bb_scheduler instances.
+  repeated buildbarn.configuration.grpc.ServerConfiguration grpc_servers = 1;
+
+  // Maximum Protobuf message size to unmarshal.
+  int64 maximum_message_size_bytes = 2;
+
+  // Common configuration options that apply to all Buildbarn binaries.
+  buildbarn.configuration.global.Configuration global = 3;
+
+  // Configuration for blob storage.
+  buildbarn.configuration.blobstore.BlobstoreConfiguration blobstore = 4;
+
+  // Map of ContainerBaseImage values to the native base image they should
+  // be replaced with. When the docker-action-router processes an action
+  // with a ContainerBaseImage matching a key in this map, it will behave
+  // as if the image ref was equal to the map value corresponding to the key.
+  map<string, string> container_image_replacements = 5;
+
+  // Selects which rewriting strategy this action router applies. Each
+  // deployment runs in exactly one mode.
+  oneof mode {
+    // Rewrite the action's command to invoke bb_chroot_helper, which
+    // bind-mounts a docker image root materialized by the
+    // bb_docker_root_fetcher sidecar. Workers in this mode run
+    // unprivileged (user namespaces only) and don't need CAP_SYS_ADMIN.
+    BindMountMode bind_mount = 6;
+
+    // Pull the docker image, upload its tree to the cluster CAS, and
+    // merge it into the action's input root. The action then runs
+    // inside a real chroot performed by bb_chroot_helper_privileged.
+    // Workers in this mode require CAP_SYS_ADMIN (typically inside a
+    // VM).
+    InlineMode inline = 7;
+  }
+}
+
+// Bind-mount mode configuration. The image is pulled and materialized
+// by bb_docker_root_fetcher running as a sidecar to each worker.
+message BindMountMode {
+  // Path to the docker_root_fetcher Unix socket on the runner containers.
+  // Passed as --fetcher-socket to bb_chroot_helper.
+  string fetcher_socket_path = 1;
+
+  // Path to the bb_chroot_helper binary on the runner containers.
+  // Default: "/bin/bb_chroot_helper"
+  string chroot_helper_path = 2;
+}
+
+// Inline mode configuration. The image is pulled by the action router
+// itself and uploaded to the cluster CAS.
+message InlineMode {
+  // Path to the bb_chroot_helper_privileged binary inside the runner
+  // container. The binary must exist at this path in the runner image
+  // (it's not provided by the action router).
+  // Default: "/buildbarn/bb_chroot_helper_privileged"
+  string chroot_helper_path = 1;
+
+  // Maximum compressed size of Docker images (sum of all layers).
+  // Default: 10 GB
+  int64 maximum_image_size_bytes = 2;
+
+  // Timeout for pulling Docker images.
+  // Default: 5 minutes
+  google.protobuf.Duration image_pull_timeout = 3;
+
+  // Authentication configuration for Docker registries.
+  // Each entry can specify either inline credentials or a path to a Docker
+  // config.json file.
+  repeated buildbarn.configuration.registry_auth
+      .RegistryAuthenticationConfiguration registry_authentication = 4;
+}

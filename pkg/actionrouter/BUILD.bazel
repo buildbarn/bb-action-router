@@ -1,0 +1,30 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "actionrouter",
+    srcs = [
+        "action_cmd_rewriter.go",
+        "action_input_rewriter.go",
+        "image_to_cas_uploader.go",
+    ],
+    importpath = "github.com/buildbarn/bb-action-router/pkg/actionrouter",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/blobstore",
+        "//pkg/docker",
+        "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
+        "@com_github_buildbarn_bb_remote_execution//pkg/blobstore",
+        "@com_github_buildbarn_bb_storage//pkg/blobstore",
+        "@com_github_buildbarn_bb_storage//pkg/blobstore/buffer",
+        "@com_github_buildbarn_bb_storage//pkg/digest",
+        "@com_github_buildbarn_bb_storage//pkg/util",
+        "@com_github_patrickmn_go_cache//:go-cache",
+        "@com_github_prometheus_client_golang//prometheus",
+        "@com_github_prometheus_client_golang//prometheus/promauto",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//proto",
+        "@org_golang_x_sync//semaphore",
+        "@org_golang_x_sync//singleflight",
+    ],
+)

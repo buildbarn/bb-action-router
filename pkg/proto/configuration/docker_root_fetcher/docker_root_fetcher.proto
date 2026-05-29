@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package buildbarn.configuration.docker_root_fetcher;
+
+import "google/protobuf/duration.proto";
+import "github.com/buildbarn/bb-storage/pkg/proto/configuration/global/global.proto";
+import "github.com/buildbarn/bb-action-router/pkg/proto/configuration/registry_auth/registry_auth.proto";
+
+option go_package = "github.com/buildbarn/bb-action-router/pkg/proto/configuration/docker_root_fetcher";
+
+message ApplicationConfiguration {
+  buildbarn.configuration.global.Configuration global = 1;
+
+  // Unix domain socket path for the fetcher to listen on.
+  string socket_path = 2;
+
+  // Number of parallel file downloads during materialization.
+  uint32 fetch_parallelism = 8;
+
+  // Maximum number of simultaneously open directory file descriptors.
+  uint32 fetch_open_directory_limit = 9;
+
+  // Directory where materialized docker roots are stored. Also serves as
+  // the parent for per-call ephemeral blob directories.
+  string roots_directory_path = 10;
+
+  // Maximum number of materialized docker roots to keep cached.
+  // It's recommended to set this to at least the number of runners, to allow
+  // for the case that each runner tries to use a different image.
+  int32 maximum_materialized_roots = 11;
+
+  // Maximum message size for internal directory proto reads.
+  int32 maximum_message_size_bytes = 12;
+
+  // Authentication configuration for Docker registries.
+  repeated
+      buildbarn.configuration.registry_auth.RegistryAuthenticationConfiguration
+          registry_authentication = 14;
+
+  // Maximum compressed size of Docker images (sum of all layers).
+  int64 maximum_image_size_bytes = 15;
+
+  // Timeout for pulling Docker images from the registry.
+  google.protobuf.Duration image_pull_timeout = 16;
+
+  // OTLP gRPC endpoints to push metrics to.
+  // Metrics are pushed to all endpoints. If empty, metrics are disabled.
+  repeated string otlp_collector_endpoints = 17;
+
+  // Maximum number of concurrent image fetches (pull + materialize).
+  // Each in-flight fetch needs disk space for its ephemeral blob directory,
+  // so the fetcher volume must be at least
+  // maximum_concurrent_fetches × maximum_image_size_bytes plus the space
+  // budgeted for materialized roots.
+  // Defaults to 1.
+  uint32 maximum_concurrent_fetches = 18;
+
+  // Timeout for the entire acquire operation (cache lookup, image pull,
+  // materialization). If unset, no timeout is applied.
+  google.protobuf.Duration acquire_timeout = 19;
+
+  // Image references to pre-fetch on startup.
+  repeated string prefetch_images = 20;
+}

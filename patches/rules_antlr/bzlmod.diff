@@ -1,0 +1,44 @@
+diff --git MODULE.bazel MODULE.bazel
+new file mode 100644
+index 0000000..685b599
+--- /dev/null
++++ MODULE.bazel
+@@ -0,0 +1,15 @@
++module(name = "rules_antlr")
++
++bazel_dep(name = "rules_java", version = "9.6.1")
++bazel_dep(name = "rules_cc", version = "0.2.17")
++
++antlr = use_extension("//antlr:extensions.bzl", "antlr")
++antlr.download(version = "4.8")
++use_repo(
++    antlr,
++    "antlr3_runtime",
++    "antlr4_runtime",
++    "antlr4_tool",
++    "javax_json",
++    "stringtemplate4",
++)
+diff --git antlr/extensions.bzl antlr/extensions.bzl
+new file mode 100644
+index 0000000..3151e01
+--- /dev/null
++++ antlr/extensions.bzl
+@@ -0,0 +1,17 @@
++load("//antlr:repositories.bzl", "rules_antlr_dependencies")
++
++download = tag_class(attrs = {"version": attr.string()})
++
++def _antlr(module_ctx):
++    rules_antlr_dependencies(
++        max([
++            ([int(part) for part in download.version.split(".")], download.version)
++            for mod in module_ctx.modules
++            for download in mod.tags.download
++        ])[1],
++    )
++
++antlr = module_extension(
++    implementation = _antlr,
++    tag_classes = {"download": download},
++)

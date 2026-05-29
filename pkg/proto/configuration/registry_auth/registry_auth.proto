@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package buildbarn.configuration.registry_auth;
+
+option go_package = "github.com/buildbarn/bb-action-router/pkg/proto/configuration/registry_auth";
+
+message RegistryAuthenticationConfiguration {
+  oneof authentication {
+    // We'll use the /v2/token API to get an anonymous Bearer token.
+    AnonymousDetails anonymous = 1;
+
+    // Username and password directly in the config. Only recommended for
+    // testing.
+    AuthenticationDetails inline = 2;
+
+    // Path to JSON file containing authentication credentials.
+    // The file should contain: {"auths": {"registry.example.com": {"username":
+    // "user", "password": "pass"}}}
+    string credentials_json_path = 3;
+  }
+}
+
+message AnonymousDetails {
+  // Hostname of the registry (e.g., "docker.io", "gcr.io", etc...)
+  string registry = 1;
+}
+
+message AuthenticationDetails {
+  // Hostname of the registry (e.g., "docker.io", "gcr.io", etc...)
+  string registry = 1;
+
+  // Username for authentication
+  string username = 2;
+
+  // Password for authentication
+  string password = 3;
+}

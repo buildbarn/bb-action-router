@@ -1,0 +1,29 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "fetcher",
+    srcs = [
+        "metrics.go",
+        "registry_auth.go",
+        "server.go",
+    ],
+    importpath = "github.com/buildbarn/bb-action-router/pkg/fetcher",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/docker",
+        "//pkg/proto/configuration/registry_auth",
+        "@io_opentelemetry_go_otel//:otel",
+        "@io_opentelemetry_go_otel//attribute",
+        "@io_opentelemetry_go_otel_exporters_otlp_otlpmetric_otlpmetricgrpc//:otlpmetricgrpc",
+        "@io_opentelemetry_go_otel_metric//:metric",
+        "@io_opentelemetry_go_otel_sdk//resource",
+        "@io_opentelemetry_go_otel_sdk_metric//:metric",
+        "@org_golang_x_sync//singleflight",
+    ],
+)
+
+go_test(
+    name = "fetcher_test",
+    srcs = ["server_test.go"],
+    embed = [":fetcher"],
+)
