@@ -1,0 +1,50 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "blobstore",
+    srcs = [
+        "action_cache_ref_store.go",
+        "build_user_injecting_visitor.go",
+        "cas_uploading_layer_extractor.go",
+        "dir_tree_verifier.go",
+    ],
+    importpath = "github.com/buildbarn/bb-action-router/pkg/blobstore",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/docker",
+        "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
+        "@com_github_buildbarn_bb_storage//pkg/blobstore",
+        "@com_github_buildbarn_bb_storage//pkg/blobstore/buffer",
+        "@com_github_buildbarn_bb_storage//pkg/digest",
+        "@com_github_buildbarn_bb_storage//pkg/util",
+        "@com_github_prometheus_client_golang//prometheus",
+        "@com_github_prometheus_client_golang//prometheus/promauto",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "blobstore_test",
+    srcs = [
+        "action_cache_ref_store_test.go",
+        "build_user_injecting_visitor_test.go",
+        "cas_uploading_layer_extractor_test.go",
+        "dir_tree_verifier_test.go",
+    ],
+    embed = [":blobstore"],
+    deps = [
+        "//internal/mock",
+        "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
+        "@com_github_buildbarn_bb_storage//pkg/blobstore",
+        "@com_github_buildbarn_bb_storage//pkg/blobstore/buffer",
+        "@com_github_buildbarn_bb_storage//pkg/blobstore/slicing",
+        "@com_github_buildbarn_bb_storage//pkg/digest",
+        "@com_github_golang_mock//gomock",
+        "@com_github_stretchr_testify//require",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//proto",
+    ],
+)

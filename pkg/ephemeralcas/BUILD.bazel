@@ -1,0 +1,29 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "ephemeralcas",
+    srcs = ["blob_access.go"],
+    importpath = "github.com/buildbarn/bb-action-router/pkg/ephemeralcas",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
+        "@com_github_buildbarn_bb_storage//pkg/blobstore",
+        "@com_github_buildbarn_bb_storage//pkg/blobstore/buffer",
+        "@com_github_buildbarn_bb_storage//pkg/blobstore/slicing",
+        "@com_github_buildbarn_bb_storage//pkg/digest",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+go_test(
+    name = "ephemeralcas_test",
+    srcs = ["blob_access_test.go"],
+    embed = [":ephemeralcas"],
+    deps = [
+        "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
+        "@com_github_buildbarn_bb_storage//pkg/blobstore/buffer",
+        "@com_github_buildbarn_bb_storage//pkg/digest",
+        "@com_github_stretchr_testify//require",
+    ],
+)

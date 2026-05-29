@@ -1,0 +1,37 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "bb_docker_root_fetcher_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/buildbarn/bb-action-router/cmd/bb_docker_root_fetcher",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//pkg/actionrouter",
+        "//pkg/docker",
+        "//pkg/ephemeralcas",
+        "//pkg/fetcher",
+        "//pkg/proto/configuration/docker_root_fetcher",
+        "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
+        "@com_github_buildbarn_bb_remote_execution//pkg/builder",
+        "@com_github_buildbarn_bb_remote_execution//pkg/cas",
+        "@com_github_buildbarn_bb_storage//pkg/blobstore",
+        "@com_github_buildbarn_bb_storage//pkg/digest",
+        "@com_github_buildbarn_bb_storage//pkg/filesystem",
+        "@com_github_buildbarn_bb_storage//pkg/filesystem/path",
+        "@com_github_buildbarn_bb_storage//pkg/global",
+        "@com_github_buildbarn_bb_storage//pkg/program",
+        "@com_github_buildbarn_bb_storage//pkg/util",
+        "@com_github_google_go_containerregistry//pkg/name",
+        "@io_opentelemetry_go_otel//attribute",
+        "@io_opentelemetry_go_otel_metric//:metric",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_golang_x_sync//semaphore",
+    ],
+)
+
+go_binary(
+    name = "bb_docker_root_fetcher",
+    embed = [":bb_docker_root_fetcher_lib"],
+    visibility = ["//visibility:public"],
+)
