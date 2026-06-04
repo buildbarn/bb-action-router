@@ -1,8 +1,10 @@
 package actionrouter
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -200,16 +202,31 @@ func (r *ActionInputRewriter) rewriteAction(ctx context.Context, action *remotee
 		return nil, err
 	}
 
+	// Rewrite platform properties identically to the bind-mount rewriter so
+	// that both modes target the same worker platform queue
+	// ({Flavor=chroot, Version=generic}, plus any pass-through properties).
 	updatedProperties := make([]*remoteexecution.Platform_Property, 0, len(action.Platform.Properties))
 	for _, prop := range action.Platform.Properties {
-		if prop.Name != ContainerBaseImageProperty {
-			updatedProperties = append(updatedProperties, prop)
+		switch prop.Name {
+		case ContainerBaseImageProperty, "requires-network", "requires-external", "Flavor", "Version":
+			continue
 		}
+		updatedProperties = append(updatedProperties, prop)
 	}
 	updatedProperties = append(updatedProperties, &remoteexecution.Platform_Property{
-		Name:  "worker-disambiguator",
-		Value: "Chroot",
+		Name:  "Flavor",
+		Value: "chroot",
 	})
+	updatedProperties = append(updatedProperties, &remoteexecution.Platform_Property{
+		Name:  "Version",
+		Value: "generic",
+	})
+	slices.SortFunc(
+		updatedProperties,
+		func(a, b *remoteexecution.Platform_Property) int {
+			return cmp.Compare(a.Name, b.Name)
+		},
+	)
 
 	action.InputRootDigest = mergedDirDigest.GetProto()
 	action.CommandDigest = commandDigest.GetProto()
