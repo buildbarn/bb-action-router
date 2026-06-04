@@ -1,0 +1,50 @@
+# The executor Pod runs the worker and runner together so they can share the
+# /runner directory (build directory + the unix socket the worker uses to
+# drive the runner) within a single kernel.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: executor
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: executor }
+  template:
+    metadata:
+      labels: { app: executor }
+    spec:
+      initContainers:
+        # The worker expects its build and cache directories to already exist;
+        # an emptyDir starts empty.
+        - name: prepare-worker
+          image: busybox:1.31.1-uclibc
+          command: ["sh", "-c", "mkdir -pm 0777 /runner/build && mkdir -pm 0700 /runner/cache && chmod 0777 /runner"]
+          volumeMounts:
+            - { name: worker, mountPath: /runner }
+      containers:
+        - name: worker
+          image: ghcr.io/buildbarn/bb-worker:20260326T163248Z-e6ab874
+          imagePullPolicy: IfNotPresent
+          args: ["/var/config/worker.jsonnet"]
+          volumeMounts:
+            - { name: config, mountPath: /var/config }
+            - { name: worker, mountPath: /runner }
+        - name: runner
+          image: bb_runner_scratch:e2e
+          imagePullPolicy: Never
+          command: ["/bin/bb_runner", "/var/config/runner.jsonnet"]
+          securityContext:
+            # This is set to false by the bind-mount overlay.
+            privileged: true
+          volumeMounts:
+            - { name: config, mountPath: /var/config }
+            - { name: worker, mountPath: /runner }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: config
+          configMap: { name: bb-config }
+        - name: worker
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

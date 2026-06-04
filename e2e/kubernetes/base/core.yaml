@@ -1,0 +1,120 @@
+# Core Buildbarn services that are independent of the action-router mode:
+# storage (CAS/AC/FSAC), the client-facing frontend, and the scheduler.
+# These run from the published Buildbarn images and read their jsonnet config
+# from the bb-config ConfigMap mounted at /config.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bb-e2e
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storage
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: storage }
+  template:
+    metadata:
+      labels: { app: storage }
+    spec:
+      containers:
+        - name: storage
+          image: ghcr.io/buildbarn/bb-storage:20260326T151518Z-d0c6f26
+          imagePullPolicy: IfNotPresent
+          args: ["/config/storage.jsonnet"]
+          ports:
+            - { name: grpc, containerPort: 8981 }
+          volumeMounts:
+            - { name: config, mountPath: /config }
+            - { name: storage-data, mountPath: /storage }
+      volumes:
+        - name: config
+          configMap: { name: bb-config }
+        - name: storage-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storage
+spec:
+  selector: { app: storage }
+  ports:
+    - { name: grpc, port: 8981, targetPort: 8981 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: frontend }
+  template:
+    metadata:
+      labels: { app: frontend }
+    spec:
+      containers:
+        - name: frontend
+          image: ghcr.io/buildbarn/bb-storage:20260326T151518Z-d0c6f26
+          imagePullPolicy: IfNotPresent
+          args: ["/config/frontend.jsonnet"]
+          ports:
+            - { name: grpc, containerPort: 8980 }
+          volumeMounts:
+            - { name: config, mountPath: /config }
+      volumes:
+        - name: config
+          configMap: { name: bb-config }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  selector: { app: frontend }
+  ports:
+    - { name: grpc, port: 8980, targetPort: 8980 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: scheduler }
+  template:
+    metadata:
+      labels: { app: scheduler }
+    spec:
+      containers:
+        - name: scheduler
+          image: ghcr.io/buildbarn/bb-scheduler:20260326T163248Z-e6ab874
+          imagePullPolicy: IfNotPresent
+          args: ["/config/scheduler.jsonnet"]
+          ports:
+            - { name: client, containerPort: 8982 }
+            - { name: worker, containerPort: 8983 }
+            - { name: bqstate, containerPort: 8984 }
+            - { name: admin, containerPort: 7982 }
+          volumeMounts:
+            - { name: config, mountPath: /config }
+      volumes:
+        - name: config
+          configMap: { name: bb-config }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scheduler
+spec:
+  selector: { app: scheduler }
+  ports:
+    - { name: client, port: 8982, targetPort: 8982 }
+    - { name: worker, port: 8983, targetPort: 8983 }
+    - { name: bqstate, port: 8984, targetPort: 8984 }
+    - { name: admin, port: 7982, targetPort: 7982 }

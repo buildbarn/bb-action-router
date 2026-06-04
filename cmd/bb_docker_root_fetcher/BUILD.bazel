@@ -1,4 +1,7 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_img//img:image.bzl", "image_from_binary")
+load("@rules_img//img:load.bzl", "image_load")
+load("@rules_img//img:push.bzl", "image_push")
 
 go_library(
     name = "bb_docker_root_fetcher_lib",
@@ -33,5 +36,28 @@ go_library(
 go_binary(
     name = "bb_docker_root_fetcher",
     embed = [":bb_docker_root_fetcher_lib"],
+    pure = "on",
     visibility = ["//visibility:public"],
+)
+
+image_from_binary(
+    name = "bb_docker_root_fetcher_image",
+    binary = ":bb_docker_root_fetcher",
+    include_runfiles = False,
+    visibility = ["//visibility:public"],
+)
+
+image_push(
+    name = "push_bb_docker_root_fetcher",
+    image = ":bb_docker_root_fetcher_image",
+    registry = "docker.io",
+    repository = "buildbarn/bb_root_fetcher",
+    tag = "latest",
+)
+
+# Produces a "docker save" tarball for `kind load image-archive`.
+image_load(
+    name = "bb_docker_root_fetcher_image_load",
+    image = ":bb_docker_root_fetcher_image",
+    tag = "bb_docker_root_fetcher:e2e",
 )

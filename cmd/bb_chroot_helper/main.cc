@@ -408,8 +408,18 @@ static void overlay_root_dirs(const std::string& docker_root) {
       continue;
     }
     auto dst = entry.path();
-    if (mount("tmpfs", dst.c_str(), "tmpfs", MS_NOSUID | MS_NODEV, "size=0")) {
-      die_errno("mount tmpfs " + dst.string());
+    std::error_code dec;
+    if (entry.is_directory(dec)) {
+      if (mount("tmpfs", dst.c_str(), "tmpfs", MS_NOSUID | MS_NODEV, "size=0")) {
+        die_errno("mount tmpfs " + dst.string());
+      }
+    } else {
+      // Leftover non-directory entries can't take a tmpfs mount. Hide their
+      // contents by bind-mounting /dev/null over them. /dev is in the keep
+      // list, so /dev/null should be available.
+      if (mount("/dev/null", dst.c_str(), nullptr, MS_BIND, nullptr)) {
+        die_errno("mount --bind /dev/null over " + dst.string());
+      }
     }
   }
 }

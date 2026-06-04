@@ -1,0 +1,42 @@
+# Runner image for the e2e executor, used by both modes.
+# Thhe helper overlays the action's docker image over "/", keeping
+# only proc/sys/dev/tmp and hiding everything else, so the runner must be
+# a near-empty image: just the static binaries under /bin. Everything the runner
+# needs at runtime lives under /var (mounted): /var/config, /var/worker,
+# /var/fetcher.
+#
+# All binaries must be static (no dynamic loader).
+load("@rules_img//img:image.bzl", "image_manifest")
+load("@rules_img//img:layer.bzl", "image_layer")
+load("@rules_img//img:load.bzl", "image_load")
+load(":pure.bzl", "pure_go_binary")
+
+pure_go_binary(
+    name = "bb_runner_pure",
+    binary = "@com_github_buildbarn_bb_remote_execution//cmd/bb_runner",
+)
+
+image_layer(
+    name = "binaries_layer",
+    srcs = {
+        "/bin/bb_runner": ":bb_runner_pure",
+        "/bin/bb_chroot_helper": "//cmd/bb_chroot_helper:bb_chroot_helper",
+        "/bin/bb_chroot_helper_privileged": "//cmd/bb_chroot_helper_privileged:bb_chroot_helper_privileged",
+        # The inline helper looks up the "worker" user.
+        "/etc/passwd": "passwd",
+        "/etc/group": "group",
+    },
+    include_runfiles = False,
+)
+
+image_manifest(
+    name = "runner_image",
+    layers = [":binaries_layer"],
+    visibility = ["//visibility:public"],
+)
+
+image_load(
+    name = "runner_image_load",
+    image = ":runner_image",
+    tag = "bb_runner_scratch:e2e",
+)
