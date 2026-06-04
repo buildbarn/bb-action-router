@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: executor
+spec:
+  template:
+    spec:
+      containers:
+        - name: runner
+          # bb_chroot_helper connects to the fetcher socket and bind-mounts the
+          # materialized roots, both under this path.
+          volumeMounts:
+            - { name: fetcher, mountPath: /var/fetcher }
+        - name: root-fetcher
+          image: bb_docker_root_fetcher:e2e
+          imagePullPolicy: Never
+          args: ["/config-fetcher/fetcher.jsonnet"]
+          env:
+            - { name: SSL_CERT_DIR, value: /etc/ssl/certs }
+          volumeMounts:
+            - { name: fetcher, mountPath: /var/fetcher }
+            - { name: router-config, mountPath: /config-fetcher }
+            - { name: ca-certs, mountPath: /etc/ssl/certs, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+          securityContext:
+            privileged: false
+      volumes:
+        - name: fetcher
+          emptyDir: {}
+        - name: router-config
+          configMap: { name: bb-router-config }
+        - name: ca-certs
+          hostPath: { path: /etc/ssl/certs, type: Directory }
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,11 @@
+# Run the verification builds/tests against the local cluster with:
+#
+#   kubectl -n bb-e2e port-forward svc/frontend 8980:8980    # in another terminal
+#   bazel test --config=remote //...
+#
+build:remote --remote_executor=grpc://localhost:8980
+build:remote --remote_instance_name=
+build:remote --remote_timeout=600s
+build:remote --verbose_failures
+
+build:remote --strategy=remote

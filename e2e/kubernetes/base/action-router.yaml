@@ -1,0 +1,53 @@
+# The bb_docker_action_router service. The scheduler's `remote` action router
+# forwards every RouteAction call here; this service rewrites docker actions.
+#
+# The mode (inline vs bind-mount) is selected entirely by the router.jsonnet in
+# the bb-router-config ConfigMap, which is supplied by the chosen kustomize
+# overlay (overlays/inline or overlays/bind-mount). This base manifest is the
+# same for both modes.
+#
+# The image is built from scratch (no libc, no CA bundle), so the node's CA
+# certificates are mounted in and pointed at via SSL_CERT_DIR. Inline mode needs
+# them to pull images from registries over TLS.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: action-router
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: action-router }
+  template:
+    metadata:
+      labels: { app: action-router }
+    spec:
+      containers:
+        - name: action-router
+          image: bb_docker_action_router:e2e
+          imagePullPolicy: Never
+          args: ["/config-router/router.jsonnet"]
+          env:
+            - { name: SSL_CERT_DIR, value: /etc/ssl/certs }
+          ports:
+            - { name: grpc, containerPort: 8982 }
+          volumeMounts:
+            - { name: router-config, mountPath: /config-router }
+            - { name: ca-certs, mountPath: /etc/ssl/certs, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: router-config
+          configMap: { name: bb-router-config }
+        - name: ca-certs
+          hostPath: { path: /etc/ssl/certs, type: Directory }
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: action-router
+spec:
+  selector: { app: action-router }
+  ports:
+    - { name: grpc, port: 8982, targetPort: 8982 }

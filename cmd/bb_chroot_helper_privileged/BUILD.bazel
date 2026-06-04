@@ -21,6 +21,8 @@ go_library(
 go_binary(
     name = "bb_chroot_helper_privileged",
     embed = [":bb_chroot_helper_privileged_lib"],
+    # Static pure-Go binary so it runs on the runner without a musl/glibc loader.
+    pure = "on",
     target_compatible_with = ["@platforms//os:linux"],
     visibility = ["//visibility:public"],
 )

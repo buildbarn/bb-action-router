@@ -7,3 +7,13 @@ platform(
     ],
     visibility = ["//visibility:public"],
 )
+
+platform(
+    name = "linux_aarch64_musl",
+    constraint_values = [
+        "@//build/linker_config:musl",
+        "@platforms//cpu:arm64",
+        "@platforms//os:linux",
+    ],
+    visibility = ["//visibility:public"],
+)

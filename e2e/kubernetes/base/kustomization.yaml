@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: bb-e2e
+
+resources:
+  - core.yaml
+  - action-router.yaml
+  - executor.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: bb-config
+    files:
+      - config/common.libsonnet
+      - config/storage.jsonnet
+      - config/frontend.jsonnet
+      - config/scheduler.jsonnet
+      - config/worker.jsonnet
+      - config/runner.jsonnet

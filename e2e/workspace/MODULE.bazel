@@ -1,0 +1,8 @@
+# Separate Bazel module used to verify the bb-action-router e2e cluster.
+module(
+    name = "bb_action_router_e2e",
+    version = "0.0.0",
+)
+
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "rules_shell", version = "0.8.0")
