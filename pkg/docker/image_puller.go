@@ -2,9 +2,6 @@ package docker
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/buildbarn/bb-storage/pkg/util"
@@ -12,7 +9,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -22,7 +18,6 @@ type ImagePuller struct {
 	authConfig        map[string]*RegistryAuth
 	maxImageSizeBytes int64
 	pullTimeout       time.Duration
-	tokenGroup        singleflight.Group
 }
 
 // RegistryAuth holds authentication credentials for a Docker registry.
@@ -30,11 +25,6 @@ type RegistryAuth struct {
 	Username       string
 	Password       string
 	AnonymousToken bool
-}
-
-// tokenResponse represents the response from your.registry.com/v2/token
-type tokenResponse struct {
-	Token string `json:"token"`
 }
 
 // NewImagePuller creates a new ImagePuller with the specified configuration.
@@ -127,37 +117,7 @@ func (p *ImagePuller) validateImageSize(img v1.Image) error {
 	return nil
 }
 
-// fetchAnonymousBearerToken fetches a bearer token that can by used for anonymous access.
-func (p *ImagePuller) fetchAnonymousBearerToken(ctx context.Context, registryHostname string) (string, error) {
-	v, err, _ := p.tokenGroup.Do("bearer_token_"+registryHostname, func() (interface{}, error) {
-		resp, err := http.Get(fmt.Sprintf("https://%s/v2/token", registryHostname))
-		if err != nil {
-			return "", err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			return "", fmt.Errorf("status code %d != OK", resp.StatusCode)
-		}
-
-		var tokenResp tokenResponse
-		if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
-			return "", fmt.Errorf("can't parse response: %w", err)
-		}
-
-		if tokenResp.Token == "" {
-			return "", fmt.Errorf("no token in response")
-		}
-
-		return tokenResp.Token, nil
-	})
-
-	if err != nil {
-		return "", err
-	}
-	return v.(string), nil
-}
-
+// getAuthForRegistry returns the authenticator to use for the given registry.
 func (p *ImagePuller) getAuthForRegistry(ctx context.Context, registryHostname string) (authn.Authenticator, error) {
 	auth, ok := p.authConfig[registryHostname]
 	if !ok {
@@ -165,11 +125,7 @@ func (p *ImagePuller) getAuthForRegistry(ctx context.Context, registryHostname s
 	}
 
 	if auth.AnonymousToken {
-		token, err := p.fetchAnonymousBearerToken(ctx, registryHostname)
-		if err != nil {
-			return nil, util.StatusWrapf(err, "Can't fetch token for registry %s", registryHostname)
-		}
-		return &authn.Bearer{Token: token}, nil
+		return authn.Anonymous, nil
 	}
 
 	return &authn.Basic{

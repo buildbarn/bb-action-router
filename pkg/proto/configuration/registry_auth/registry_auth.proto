@@ -6,7 +6,7 @@ option go_package = "github.com/buildbarn/bb-action-router/pkg/proto/configurati
 
 message RegistryAuthenticationConfiguration {
   oneof authentication {
-    // We'll use the /v2/token API to get an anonymous Bearer token.
+    // Pull anonymously.
     AnonymousDetails anonymous = 1;
 
     // Username and password directly in the config. Only recommended for
