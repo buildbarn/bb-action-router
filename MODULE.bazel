@@ -12,6 +12,8 @@ bazel_dep(name = "protobuf", version = "35.0")
 bazel_dep(name = "rules_cc", version = "0.2.18")
 bazel_dep(name = "rules_go", version = "0.60.0")
 bazel_dep(name = "rules_img", version = "0.3.11")
+bazel_dep(name = "rules_jsonnet", version = "0.7.2")
+bazel_dep(name = "toolchains_llvm", version = "1.7.0")
 bazel_dep(name = "toolchains_musl", version = "0.1.27.bcr.1")
 
 # bb-storage, bb-remote-execution and go-xdr are not published to any Bazel
@@ -53,6 +55,11 @@ git_override(
     remote = "https://github.com/marcohu/rules_antlr.git",
 )
 
+single_version_override(
+    module_name = "toolchains_llvm",
+    patches = ["//:patches/toolchains_llvm/non-root.diff"],
+)
+
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
 go_sdk.from_file(go_mod = "//:go.mod")
 
@@ -60,6 +67,7 @@ go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
 go_deps.from_file(go_mod = "//:go.mod")
 use_repo(
     go_deps,
+    "cc_mvdan_gofumpt",
     "com_github_bazelbuild_remote_apis",
     "com_github_golang_mock",
     "com_github_google_go_containerregistry",
@@ -73,11 +81,20 @@ use_repo(
     "io_opentelemetry_go_otel_sdk_metric",
     "org_golang_google_grpc",
     "org_golang_google_protobuf",
+    "org_golang_x_lint",
     "org_golang_x_sync",
     "org_golang_x_sys",
 )
 
 go_deps_dev = use_extension("@gazelle//:extensions.bzl", "go_deps", dev_dependency = True)
+go_deps_dev.module_override(
+    patches = ["@com_github_buildbarn_bb_storage//:patches/org_golang_x_lint/generic.diff"],
+    path = "golang.org/x/lint",
+)
+go_deps_dev.module_override(
+    patches = ["@com_github_buildbarn_bb_storage//:patches/cc_mvdan_gofumpt/unused-receiver-idents.diff"],
+    path = "mvdan.cc/gofumpt",
+)
 
 # bb-storage's pkg/filesystem references unix.O_SEARCH, which x/sys does not
 # define for Darwin
@@ -94,5 +111,10 @@ toolchains_musl.config(
 
 # Force musl toolchain to have higher priority than the rules_cc one.
 use_repo(toolchains_musl, "musl_toolchains_hub")
+
+llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm", dev_dependency = True)
+llvm.toolchain(
+    llvm_version = "17.0.6",
+)
 
 register_toolchains("@musl_toolchains_hub//:all")

@@ -16,10 +16,12 @@ require (
 	go.opentelemetry.io/otel/metric v1.44.0
 	go.opentelemetry.io/otel/sdk v1.44.0
 	go.opentelemetry.io/otel/sdk/metric v1.44.0
+	golang.org/x/lint v0.0.0-20241112194109-818c5a804067
 	golang.org/x/sync v0.20.0
 	golang.org/x/sys v0.45.0
 	google.golang.org/grpc v1.81.1
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
+	mvdan.cc/gofumpt v0.10.0
 )
 
 require (
