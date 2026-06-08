@@ -7,6 +7,10 @@ import (
 	"time"
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
+	"github.com/buildbarn/bb-action-router/pkg/actionrouter"
+	"github.com/buildbarn/bb-action-router/pkg/docker"
+	"github.com/buildbarn/bb-action-router/pkg/fetcher"
+	bb_docker_action_router "github.com/buildbarn/bb-action-router/pkg/proto/configuration/bb_docker_action_router"
 	"github.com/buildbarn/bb-remote-execution/pkg/proto/remoteactionrouter"
 	"github.com/buildbarn/bb-storage/pkg/auth"
 	bb_blobstore "github.com/buildbarn/bb-storage/pkg/blobstore"
@@ -17,10 +21,6 @@ import (
 	"github.com/buildbarn/bb-storage/pkg/program"
 	"github.com/buildbarn/bb-storage/pkg/util"
 	"github.com/buildbarn/bb-storage/pkg/zstd"
-	"github.com/buildbarn/bb-action-router/pkg/actionrouter"
-	"github.com/buildbarn/bb-action-router/pkg/docker"
-	"github.com/buildbarn/bb-action-router/pkg/fetcher"
-	bb_docker_action_router "github.com/buildbarn/bb-action-router/pkg/proto/configuration/bb_docker_action_router"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -57,7 +57,8 @@ func main() {
 			configuration.Blobstore,
 			grpcClientFactory,
 			int(configuration.MaximumMessageSizeBytes),
-			zstd.NewPoolFromConfiguration(nil))
+			zstd.NewPoolFromConfiguration(nil),
+		)
 		if err != nil {
 			return util.StatusWrap(err, "Failed to create blobstore")
 		}
@@ -198,7 +199,8 @@ func (s *dockerActionRouterServer) routeActionImpl(ctx context.Context, request 
 	}
 
 	digestFunction, err := instanceName.GetDigestFunction(
-		remoteexecution.DigestFunction_Value(request.DigestFunction), 0)
+		remoteexecution.DigestFunction_Value(request.DigestFunction), 0,
+	)
 	if err != nil {
 		return nil, util.StatusWrap(err, "Failed to create digest function")
 	}

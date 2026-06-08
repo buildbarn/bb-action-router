@@ -32,7 +32,7 @@ func NewActionCacheRefStore(
 	}
 }
 
-func (rs *ActionCacheRefStore) computeCacheKeyDigest(ref string, digestFunction digest.Function) (digest.Digest, error) {
+func (ActionCacheRefStore) computeCacheKeyDigest(ref string, digestFunction digest.Function) (digest.Digest, error) {
 	cacheKey := &remoteexecution.Action{
 		CommandDigest: &remoteexecution.Digest{
 			// We just need some hash here to make the storage layer think the Action proto is well-formed. We use
@@ -78,7 +78,8 @@ func (rs *ActionCacheRefStore) Put(ctx context.Context, ref string, rootDir *rem
 	if err := rs.actionCache.Put(
 		ctx,
 		cacheKeyDigest,
-		buffer.NewProtoBufferFromProto(actionResult, buffer.UserProvided)); err != nil {
+		buffer.NewProtoBufferFromProto(actionResult, buffer.UserProvided),
+	); err != nil {
 		return util.StatusWrap(err, "Failed to store action result")
 	}
 

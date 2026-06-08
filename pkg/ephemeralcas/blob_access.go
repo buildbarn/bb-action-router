@@ -82,13 +82,13 @@ func (b *DirectoryBackedBlobAccess) FindMissing(ctx context.Context, digests dig
 
 // GetFromComposite is part of the BlobAccess interface but isn't exercised
 // by the docker root materialization path.
-func (b *DirectoryBackedBlobAccess) GetFromComposite(ctx context.Context, parentDigest, childDigest digest.Digest, slicer slicing.BlobSlicer) buffer.Buffer {
+func (DirectoryBackedBlobAccess) GetFromComposite(ctx context.Context, parentDigest, childDigest digest.Digest, slicer slicing.BlobSlicer) buffer.Buffer {
 	return buffer.NewBufferFromError(status.Error(codes.Unimplemented, "GetFromComposite not supported by ephemeralcas"))
 }
 
 // GetCapabilities is part of the BlobAccess interface but isn't exercised
 // by the docker root materialization path.
-func (b *DirectoryBackedBlobAccess) GetCapabilities(ctx context.Context, instanceName digest.InstanceName) (*remoteexecution.ServerCapabilities, error) {
+func (DirectoryBackedBlobAccess) GetCapabilities(ctx context.Context, instanceName digest.InstanceName) (*remoteexecution.ServerCapabilities, error) {
 	return nil, status.Error(codes.Unimplemented, "GetCapabilities not supported by ephemeralcas")
 }
 

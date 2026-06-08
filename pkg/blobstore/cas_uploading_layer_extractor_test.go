@@ -9,13 +9,13 @@ import (
 	"testing"
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
+	"github.com/buildbarn/bb-action-router/internal/mock"
 	bb_blobstore "github.com/buildbarn/bb-storage/pkg/blobstore"
 	"github.com/buildbarn/bb-storage/pkg/blobstore/buffer"
 	"github.com/buildbarn/bb-storage/pkg/blobstore/slicing"
 	"github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
-	"github.com/buildbarn/bb-action-router/internal/mock"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -442,7 +442,7 @@ func (f *filesystemTrackingBlobAccess) Put(ctx context.Context, digest digest.Di
 	return f.inner.Put(ctx, digest, newBuffer)
 }
 
-func (f *filesystemTrackingBlobAccess) formatDirectoryEntry(dir *remoteexecution.Directory) string {
+func (filesystemTrackingBlobAccess) formatDirectoryEntry(dir *remoteexecution.Directory) string {
 	var parts []string
 
 	if len(dir.Files) > 0 {

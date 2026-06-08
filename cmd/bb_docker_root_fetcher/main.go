@@ -205,7 +205,7 @@ func (m *materializer) buildRoot(ctx context.Context, fetchCoordinator *rootFetc
 
 // populateRoot fetches the tree at `rootDigest` into `dirPath` and ensures
 // the mountpoint directories required by the chroot helper exist.
-func (m *materializer) populateRoot(ctx context.Context, dirPath string, fetchCoordinator *rootFetcher, rootDigest bb_digest.Digest) error {
+func (materializer) populateRoot(ctx context.Context, dirPath string, fetchCoordinator *rootFetcher, rootDigest bb_digest.Digest) error {
 	dir, err := filesystem.NewLocalDirectory(path.LocalFormat.NewParser(dirPath))
 	if err != nil {
 		return fmt.Errorf("open in-progress root dir: %w", err)
@@ -222,7 +222,8 @@ func (m *materializer) populateRoot(ctx context.Context, dirPath string, fetchCo
 		fetchCoordinator.directoryFetcher,
 		fetchCoordinator.fileFetcher,
 		fetchCoordinator.semaphore,
-		fetchCoordinator.cas)
+		fetchCoordinator.cas,
+	)
 	if err := buildDir.MergeDirectoryContents(ctx, util.DefaultErrorLogger, rootDigest, nil); err != nil {
 		return fmt.Errorf("materialize: %w", err)
 	}
