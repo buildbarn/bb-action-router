@@ -80,6 +80,7 @@ message InlineMode {
   // Authentication configuration for Docker registries.
   // Each entry can specify either inline credentials or a path to a Docker
   // config.json file.
-  repeated buildbarn.configuration.registry_auth
-      .RegistryAuthenticationConfiguration registry_authentication = 4;
+  repeated
+      buildbarn.configuration.registry_auth.RegistryAuthenticationConfiguration
+          registry_authentication = 4;
 }

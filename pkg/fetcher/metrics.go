@@ -54,7 +54,8 @@ func InitOTLPMetrics(ctx context.Context, appName string, endpoints []string) (*
 
 	var opts []sdkmetric.Option
 	for _, endpoint := range endpoints {
-		exporter, err := otlpmetricgrpc.New(ctx,
+		exporter, err := otlpmetricgrpc.New(
+			ctx,
 			otlpmetricgrpc.WithEndpoint(endpoint),
 			otlpmetricgrpc.WithCompressor("gzip"),
 			otlpmetricgrpc.WithInsecure(),
@@ -64,7 +65,8 @@ func InitOTLPMetrics(ctx context.Context, appName string, endpoints []string) (*
 			return nil, nil, fmt.Errorf("create otlp exporter for %s: %w", endpoint, err)
 		}
 		opts = append(opts, sdkmetric.WithReader(
-			sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(60*time.Second))))
+			sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(60*time.Second)),
+		))
 		log.Printf("metrics: exporter configured for %s", endpoint)
 	}
 	opts = append(opts, sdkmetric.WithResource(res))

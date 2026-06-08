@@ -20,7 +20,7 @@ func newRecordingVisitor() *recordingVisitor {
 	return &recordingVisitor{files: map[string]string{}}
 }
 
-func (r *recordingVisitor) OnDirectorySeen(_ context.Context, _ string) error { return nil }
+func (recordingVisitor) OnDirectorySeen(_ context.Context, _ string) error { return nil }
 
 func (r *recordingVisitor) OnFileSeen(_ context.Context, path string, data io.Reader, _ int64) error {
 	b, err := io.ReadAll(data)
@@ -31,9 +31,9 @@ func (r *recordingVisitor) OnFileSeen(_ context.Context, path string, data io.Re
 	return nil
 }
 
-func (r *recordingVisitor) OnLinkSeen(_ context.Context, _, _ string) error    { return nil }
-func (r *recordingVisitor) OnSymlinkSeen(_ context.Context, _, _ string) error { return nil }
-func (r *recordingVisitor) OnLayerComplete(_ context.Context) error            { return nil }
+func (recordingVisitor) OnLinkSeen(_ context.Context, _, _ string) error    { return nil }
+func (recordingVisitor) OnSymlinkSeen(_ context.Context, _, _ string) error { return nil }
+func (recordingVisitor) OnLayerComplete(_ context.Context) error            { return nil }
 
 func TestBuildUserInjectingVisitor_Passwd(t *testing.T) {
 	const defaultRootLine = "root:x:0:0::/tmp:/bin/sh\n"

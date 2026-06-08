@@ -99,7 +99,9 @@ func (e *CASUploadingLayerExtractor) OnFileSeen(ctx context.Context, path string
 		buffer.NewCASBufferFromReader(
 			blobDigest,
 			newSectionReadCloser(f, 0, sizeBytes),
-			buffer.UserProvided)); err != nil {
+			buffer.UserProvided,
+		),
+	); err != nil {
 		return util.StatusWrap(err, "Failed to upload file")
 	}
 
@@ -351,7 +353,8 @@ func (u *uploadDirState) upload(ctx context.Context, cas bb_blobstore.BlobAccess
 	if err := cas.Put(
 		ctx,
 		dirDigest,
-		buffer.NewCASBufferFromByteSlice(dirDigest, data, buffer.UserProvided)); err != nil {
+		buffer.NewCASBufferFromByteSlice(dirDigest, data, buffer.UserProvided),
+	); err != nil {
 		return nil, util.StatusWrap(err, "Failed to upload directory")
 	}
 	return dirDigest.GetProto(), nil
