@@ -81,6 +81,18 @@ func InitOTLPMetrics(ctx context.Context, appName string, endpoints []string) (*
 	return m, provider.Shutdown, nil
 }
 
+// exponentialBoundaries returns count histogram bucket boundaries growing
+// geometrically from start by factor: start, start*factor, start*factor^2, ...
+func exponentialBoundaries(start, factor float64, count int) []float64 {
+	bounds := make([]float64, count)
+	b := start
+	for i := range bounds {
+		bounds[i] = b
+		b *= factor
+	}
+	return bounds
+}
+
 func newMetrics(appName string) (*Metrics, func(context.Context) error, error) {
 	meter := otel.Meter(appName)
 	prefix := appName + "_"
@@ -89,7 +101,12 @@ func newMetrics(appName string) (*Metrics, func(context.Context) error, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	acquireDuration, err := meter.Float64Histogram(prefix + "acquire_duration_seconds")
+	// The OTel SDK default histogram boundaries (0, 5, 10, ... 10000) are tuned
+	// for milliseconds, but durations here are recorded in seconds, so we need to define our own.
+	acquireDuration, err := meter.Float64Histogram(
+		prefix+"acquire_duration_seconds",
+		metric.WithExplicitBucketBoundaries(exponentialBoundaries(0.001, 2, 21)...),
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -101,7 +118,10 @@ func newMetrics(appName string) (*Metrics, func(context.Context) error, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	imagePrepDuration, err := meter.Float64Histogram(prefix + "image_prep_duration_seconds")
+	imagePrepDuration, err := meter.Float64Histogram(
+		prefix+"image_prep_duration_seconds",
+		metric.WithExplicitBucketBoundaries(exponentialBoundaries(1, 2, 11)...),
+	)
 	if err != nil {
 		return nil, nil, err
 	}
