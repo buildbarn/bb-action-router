@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package buildbarn.configuration.build_user;
+
+option go_package = "github.com/buildbarn/bb-action-router/pkg/proto/configuration/build_user";
+
+// BuildUser is the user identity injected into a materialized image's
+// /etc/passwd and /etc/group so that the in-namespace action process
+// resolves to a name. Its uid/gid must match the --build-uid/--build-gid
+// passed to bb_chroot_helper: in bind-mount mode the docker_root_fetcher
+// injects this entry while the action router passes the matching flags to
+// the helper, so the two deployments must be configured consistently.
+//
+// If the whole message is omitted, defaults of name="root", uid=0,
+// gid=0 are applied. When the message is present its uid/gid are used
+// verbatim; an empty name falls back to "root".
+message BuildUser {
+  // Username written to /etc/passwd and /etc/group. Defaults to "root".
+  string name = 1;
+
+  // In-namespace uid the action runs as.
+  uint32 uid = 2;
+
+  // In-namespace gid the action runs as.
+  uint32 gid = 3;
+}

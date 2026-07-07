@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
+	"github.com/buildbarn/bb-action-router/pkg/blobstore"
 	"github.com/buildbarn/bb-action-router/pkg/docker"
 	bb_blobstore "github.com/buildbarn/bb-storage/pkg/blobstore"
 	"github.com/buildbarn/bb-storage/pkg/blobstore/buffer"
@@ -34,6 +35,7 @@ type ActionCmdRewriter struct {
 	chrootHelperPath           string
 	fetcherSocketPath          string
 	containerImageReplacements map[string]string
+	buildUser                  blobstore.UnixUser
 }
 
 // NewActionCmdRewriter creates a new ActionCmdRewriter.
@@ -43,6 +45,7 @@ func NewActionCmdRewriter(
 	chrootHelperPath string,
 	fetcherSocketPath string,
 	containerImageReplacements map[string]string,
+	buildUser blobstore.UnixUser,
 ) (*ActionCmdRewriter, error) {
 	if chrootHelperPath == "" {
 		return nil, status.Error(codes.InvalidArgument, "chrootHelperPath must be set")
@@ -56,6 +59,7 @@ func NewActionCmdRewriter(
 		chrootHelperPath:           chrootHelperPath,
 		fetcherSocketPath:          fetcherSocketPath,
 		containerImageReplacements: containerImageReplacements,
+		buildUser:                  buildUser,
 	}, nil
 }
 
@@ -122,6 +126,7 @@ func (r *ActionCmdRewriter) rewriteAction(ctx context.Context, action *remoteexe
 		r.chrootHelperPath,
 		fmt.Sprintf("--docker-image-ref=%s", imageRef),
 		fmt.Sprintf("--fetcher-socket=%s", r.fetcherSocketPath),
+		fmt.Sprintf("--build-user=%d:%d", r.buildUser.UID, r.buildUser.GID),
 		networkFlag,
 	}, command.Arguments...)
 

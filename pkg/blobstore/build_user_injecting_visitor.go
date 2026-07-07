@@ -11,27 +11,26 @@ import (
 	"github.com/buildbarn/bb-action-router/pkg/docker"
 )
 
-// IDs as seen from inside the helper's user namespace, which maps the outside
-// build uid/gid to 0 (see bb_chroot_helper). /etc/passwd and /etc/group are
-// resolved by processes running inside that namespace, so the entries we
-// inject are keyed on these in-namespace values.
-const (
-	nsBuildUID = 0
-	nsBuildGID = 0
-)
-
-// BuildUserInjectingVisitor wraps a LayerContentsVisitor and ensures
-// /etc/passwd and /etc/group contain entries for the build uid/gid
-// as layers are processed.
-type BuildUserInjectingVisitor struct {
-	inner docker.LayerContentsVisitor
+// UnixUser identifies the user injected into an image's /etc/passwd and
+// /etc/group.
+type UnixUser struct {
+	UID  int
+	GID  int
+	Name string
 }
 
-// NewBuildUserInjectingVisitor returns a visitor that appends
-// entries for the build uid/gid to /etc/passwd and /etc/group when
-// missing.
-func NewBuildUserInjectingVisitor(inner docker.LayerContentsVisitor) *BuildUserInjectingVisitor {
-	return &BuildUserInjectingVisitor{inner: inner}
+// BuildUserInjectingVisitor wraps a LayerContentsVisitor and ensures
+// /etc/passwd and /etc/group contain an entry for the build user as layers
+// are processed.
+type BuildUserInjectingVisitor struct {
+	inner docker.LayerContentsVisitor
+	user  UnixUser
+}
+
+// NewBuildUserInjectingVisitor returns a visitor that appends an entry for
+// the given build user to /etc/passwd and /etc/group when missing.
+func NewBuildUserInjectingVisitor(inner docker.LayerContentsVisitor, user UnixUser) *BuildUserInjectingVisitor {
+	return &BuildUserInjectingVisitor{inner: inner, user: user}
 }
 
 // OnDirectorySeen forwards to the wrapped visitor.
@@ -43,16 +42,16 @@ func (v *BuildUserInjectingVisitor) OnDirectorySeen(ctx context.Context, path st
 func (v *BuildUserInjectingVisitor) OnFileSeen(ctx context.Context, path string, data io.Reader, mode int64) error {
 	switch path {
 	case "etc/passwd":
-		content, err := setIDEntry(data, nsBuildUID, func(name, shell, ignored string) string {
-			return fmt.Sprintf("%s:x:%d:%d::/tmp:%s\n", name, nsBuildUID, nsBuildGID, shell)
+		content, err := setIDEntry(data, v.user.UID, v.user.Name, func(name, shell, ignored string) string {
+			return fmt.Sprintf("%s:x:%d:%d::/tmp:%s\n", name, v.user.UID, v.user.GID, shell)
 		})
 		if err != nil {
 			return fmt.Errorf("ensuring /etc/passwd has the build user: %w", err)
 		}
 		return v.inner.OnFileSeen(ctx, path, content, mode)
 	case "etc/group":
-		content, err := setIDEntry(data, nsBuildGID, func(name, ignored, members string) string {
-			return fmt.Sprintf("%s:x:%d:%s\n", name, nsBuildGID, members)
+		content, err := setIDEntry(data, v.user.GID, v.user.Name, func(name, ignored, members string) string {
+			return fmt.Sprintf("%s:x:%d:%s\n", name, v.user.GID, members)
 		})
 		if err != nil {
 			return fmt.Errorf("ensuring /etc/group has the build group: %w", err)
@@ -80,10 +79,10 @@ func (v *BuildUserInjectingVisitor) OnLayerComplete(ctx context.Context) error {
 
 // setIDEntry makes sure that the entry corresponding to the given ID matches
 // entryLine.
-func setIDEntry(data io.Reader, id int, entryLine func(string, string, string) string) (io.Reader, error) {
+func setIDEntry(data io.Reader, id int, defaultName string, entryLine func(string, string, string) string) (io.Reader, error) {
 	scanner := bufio.NewScanner(data)
 	var lines []string
-	name := "root"
+	name := defaultName
 	shell := "/bin/sh"
 	members := ""
 	for scanner.Scan() {

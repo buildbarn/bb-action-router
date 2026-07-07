@@ -95,6 +95,10 @@ func buildRewriter(
 	configuration *bb_docker_action_router.ApplicationConfiguration,
 	cas, actionCache bb_blobstore.BlobAccess,
 ) (actionHandler, error) {
+	buildUser, err := actionrouter.BuildUserFromProto(configuration.BuildUser)
+	if err != nil {
+		return nil, util.StatusWrap(err, "Invalid build user")
+	}
 	switch m := configuration.Mode.(type) {
 	case *bb_docker_action_router.ApplicationConfiguration_BindMount:
 		helperPath := m.BindMount.ChrootHelperPath
@@ -107,6 +111,7 @@ func buildRewriter(
 			helperPath,
 			m.BindMount.FetcherSocketPath,
 			configuration.ContainerImageReplacements,
+			buildUser,
 		)
 	case *bb_docker_action_router.ApplicationConfiguration_Inline:
 		helperPath := m.Inline.ChrootHelperPath
@@ -133,6 +138,7 @@ func buildRewriter(
 			helperPath,
 			puller,
 			configuration.ContainerImageReplacements,
+			buildUser,
 		)
 	case nil:
 		return nil, status.Error(codes.InvalidArgument, "configuration.mode must be set (bind_mount or inline)")

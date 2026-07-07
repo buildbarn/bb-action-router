@@ -3,8 +3,9 @@ syntax = "proto3";
 package buildbarn.configuration.docker_root_fetcher;
 
 import "google/protobuf/duration.proto";
-import "github.com/buildbarn/bb-storage/pkg/proto/configuration/global/global.proto";
+import "github.com/buildbarn/bb-action-router/pkg/proto/configuration/build_user/build_user.proto";
 import "github.com/buildbarn/bb-action-router/pkg/proto/configuration/registry_auth/registry_auth.proto";
+import "github.com/buildbarn/bb-storage/pkg/proto/configuration/global/global.proto";
 
 option go_package = "github.com/buildbarn/bb-action-router/pkg/proto/configuration/docker_root_fetcher";
 
@@ -61,4 +62,9 @@ message ApplicationConfiguration {
 
   // Image references to pre-fetch on startup.
   repeated string prefetch_images = 20;
+
+  // Identity injected into each materialized image's /etc/passwd and
+  // /etc/group. Its uid/gid must match the --build-user the action router
+  // passes to the helper. Defaults to root:0:0.
+  buildbarn.configuration.build_user.BuildUser build_user = 21;
 }

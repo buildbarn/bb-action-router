@@ -7,6 +7,7 @@
 package bb_docker_action_router
 
 import (
+	build_user "github.com/buildbarn/bb-action-router/pkg/proto/configuration/build_user"
 	registry_auth "github.com/buildbarn/bb-action-router/pkg/proto/configuration/registry_auth"
 	blobstore "github.com/buildbarn/bb-storage/pkg/proto/configuration/blobstore"
 	global "github.com/buildbarn/bb-storage/pkg/proto/configuration/global"
@@ -33,6 +34,7 @@ type ApplicationConfiguration struct {
 	Global                     *global.Configuration             `protobuf:"bytes,3,opt,name=global,proto3" json:"global,omitempty"`
 	Blobstore                  *blobstore.BlobstoreConfiguration `protobuf:"bytes,4,opt,name=blobstore,proto3" json:"blobstore,omitempty"`
 	ContainerImageReplacements map[string]string                 `protobuf:"bytes,5,rep,name=container_image_replacements,json=containerImageReplacements,proto3" json:"container_image_replacements,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	BuildUser                  *build_user.BuildUser             `protobuf:"bytes,8,opt,name=build_user,json=buildUser,proto3" json:"build_user,omitempty"`
 	// Types that are valid to be assigned to Mode:
 	//
 	//	*ApplicationConfiguration_BindMount
@@ -103,6 +105,13 @@ func (x *ApplicationConfiguration) GetBlobstore() *blobstore.BlobstoreConfigurat
 func (x *ApplicationConfiguration) GetContainerImageReplacements() map[string]string {
 	if x != nil {
 		return x.ContainerImageReplacements
+	}
+	return nil
+}
+
+func (x *ApplicationConfiguration) GetBuildUser() *build_user.BuildUser {
+	if x != nil {
+		return x.BuildUser
 	}
 	return nil
 }
@@ -272,13 +281,15 @@ var File_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_docker
 
 const file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_docker_action_router_bb_docker_action_router_proto_rawDesc = "" +
 	"\n" +
-	"sgithub.com/buildbarn/bb-action-router/pkg/proto/configuration/bb_docker_action_router/bb_docker_action_router.proto\x12/buildbarn.configuration.bb_docker_action_router\x1a\x1egoogle/protobuf/duration.proto\x1aQgithub.com/buildbarn/bb-storage/pkg/proto/configuration/blobstore/blobstore.proto\x1aKgithub.com/buildbarn/bb-storage/pkg/proto/configuration/global/global.proto\x1aGgithub.com/buildbarn/bb-storage/pkg/proto/configuration/grpc/grpc.proto\x1a_github.com/buildbarn/bb-action-router/pkg/proto/configuration/registry_auth/registry_auth.proto\"\x8a\x06\n" +
+	"sgithub.com/buildbarn/bb-action-router/pkg/proto/configuration/bb_docker_action_router/bb_docker_action_router.proto\x12/buildbarn.configuration.bb_docker_action_router\x1a\x1egoogle/protobuf/duration.proto\x1aQgithub.com/buildbarn/bb-storage/pkg/proto/configuration/blobstore/blobstore.proto\x1aKgithub.com/buildbarn/bb-storage/pkg/proto/configuration/global/global.proto\x1aGgithub.com/buildbarn/bb-storage/pkg/proto/configuration/grpc/grpc.proto\x1aYgithub.com/buildbarn/bb-action-router/pkg/proto/configuration/build_user/build_user.proto\x1a_github.com/buildbarn/bb-action-router/pkg/proto/configuration/registry_auth/registry_auth.proto\"\xd8\x06\n" +
 	"\x18ApplicationConfiguration\x12T\n" +
 	"\fgrpc_servers\x18\x01 \x03(\v21.buildbarn.configuration.grpc.ServerConfigurationR\vgrpcServers\x12;\n" +
 	"\x1amaximum_message_size_bytes\x18\x02 \x01(\x03R\x17maximumMessageSizeBytes\x12E\n" +
 	"\x06global\x18\x03 \x01(\v2-.buildbarn.configuration.global.ConfigurationR\x06global\x12W\n" +
 	"\tblobstore\x18\x04 \x01(\v29.buildbarn.configuration.blobstore.BlobstoreConfigurationR\tblobstore\x12\xab\x01\n" +
-	"\x1ccontainer_image_replacements\x18\x05 \x03(\v2i.buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.ContainerImageReplacementsEntryR\x1acontainerImageReplacements\x12_\n" +
+	"\x1ccontainer_image_replacements\x18\x05 \x03(\v2i.buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.ContainerImageReplacementsEntryR\x1acontainerImageReplacements\x12L\n" +
+	"\n" +
+	"build_user\x18\b \x01(\v2-.buildbarn.configuration.build_user.BuildUserR\tbuildUser\x12_\n" +
 	"\n" +
 	"bind_mount\x18\x06 \x01(\v2>.buildbarn.configuration.bb_docker_action_router.BindMountModeH\x00R\tbindMount\x12U\n" +
 	"\x06inline\x18\a \x01(\v2;.buildbarn.configuration.bb_docker_action_router.InlineModeH\x00R\x06inline\x1aM\n" +
@@ -317,23 +328,25 @@ var file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_docker
 	(*grpc.ServerConfiguration)(nil),         // 4: buildbarn.configuration.grpc.ServerConfiguration
 	(*global.Configuration)(nil),             // 5: buildbarn.configuration.global.Configuration
 	(*blobstore.BlobstoreConfiguration)(nil), // 6: buildbarn.configuration.blobstore.BlobstoreConfiguration
-	(*durationpb.Duration)(nil),              // 7: google.protobuf.Duration
-	(*registry_auth.RegistryAuthenticationConfiguration)(nil), // 8: buildbarn.configuration.registry_auth.RegistryAuthenticationConfiguration
+	(*build_user.BuildUser)(nil),             // 7: buildbarn.configuration.build_user.BuildUser
+	(*durationpb.Duration)(nil),              // 8: google.protobuf.Duration
+	(*registry_auth.RegistryAuthenticationConfiguration)(nil), // 9: buildbarn.configuration.registry_auth.RegistryAuthenticationConfiguration
 }
 var file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_docker_action_router_bb_docker_action_router_proto_depIdxs = []int32{
 	4, // 0: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.grpc_servers:type_name -> buildbarn.configuration.grpc.ServerConfiguration
 	5, // 1: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.global:type_name -> buildbarn.configuration.global.Configuration
 	6, // 2: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.blobstore:type_name -> buildbarn.configuration.blobstore.BlobstoreConfiguration
 	3, // 3: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.container_image_replacements:type_name -> buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.ContainerImageReplacementsEntry
-	1, // 4: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.bind_mount:type_name -> buildbarn.configuration.bb_docker_action_router.BindMountMode
-	2, // 5: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.inline:type_name -> buildbarn.configuration.bb_docker_action_router.InlineMode
-	7, // 6: buildbarn.configuration.bb_docker_action_router.InlineMode.image_pull_timeout:type_name -> google.protobuf.Duration
-	8, // 7: buildbarn.configuration.bb_docker_action_router.InlineMode.registry_authentication:type_name -> buildbarn.configuration.registry_auth.RegistryAuthenticationConfiguration
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	7, // 4: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.build_user:type_name -> buildbarn.configuration.build_user.BuildUser
+	1, // 5: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.bind_mount:type_name -> buildbarn.configuration.bb_docker_action_router.BindMountMode
+	2, // 6: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.inline:type_name -> buildbarn.configuration.bb_docker_action_router.InlineMode
+	8, // 7: buildbarn.configuration.bb_docker_action_router.InlineMode.image_pull_timeout:type_name -> google.protobuf.Duration
+	9, // 8: buildbarn.configuration.bb_docker_action_router.InlineMode.registry_authentication:type_name -> buildbarn.configuration.registry_auth.RegistryAuthenticationConfiguration
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() {
