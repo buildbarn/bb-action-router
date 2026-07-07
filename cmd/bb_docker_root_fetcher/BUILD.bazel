@@ -10,6 +10,7 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//pkg/actionrouter",
+        "//pkg/blobstore",
         "//pkg/docker",
         "//pkg/ephemeralcas",
         "//pkg/fetcher",

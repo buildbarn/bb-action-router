@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/buildbarn/bb-action-router/pkg/actionrouter"
+	"github.com/buildbarn/bb-action-router/pkg/blobstore"
 	"github.com/buildbarn/bb-action-router/pkg/docker"
 	"github.com/buildbarn/bb-action-router/pkg/ephemeralcas"
 	"github.com/buildbarn/bb-action-router/pkg/fetcher"
@@ -102,6 +103,7 @@ type materializer struct {
 	maxMessageSize   int
 	digestFunction   bb_digest.Function
 	puller           *docker.ImagePuller
+	buildUser        blobstore.UnixUser
 	metrics          *fetcher.Metrics
 }
 
@@ -147,7 +149,7 @@ func (m *materializer) materialize(ctx context.Context, imageRef string) (string
 	defer os.RemoveAll(ephemeralCasDir)
 
 	blobAccess := ephemeralcas.New(ephemeralCasDir)
-	uploader := actionrouter.NewImageToCasUploader(m.puller, blobAccess)
+	uploader := actionrouter.NewImageToCasUploader(m.puller, blobAccess, m.buildUser)
 	rootDigest, err := uploader.UploadImageToCAS(ctx, imageRef, m.digestFunction)
 	if err != nil {
 		return "", fmt.Errorf("upload image to ephemeral CAS: %w", err)
@@ -315,6 +317,11 @@ func main() {
 			acquireTimeout = config.AcquireTimeout.AsDuration()
 		}
 
+		buildUser, err := actionrouter.BuildUserFromProto(config.BuildUser)
+		if err != nil {
+			return util.StatusWrap(err, "Invalid build user")
+		}
+
 		m := &materializer{
 			rootsDir:         config.RootsDirectoryPath,
 			openDirLimit:     openDirLimit,
@@ -322,6 +329,7 @@ func main() {
 			maxMessageSize:   int(config.MaximumMessageSizeBytes),
 			digestFunction:   digestFunction,
 			puller:           puller,
+			buildUser:        buildUser,
 			metrics:          metrics,
 		}
 

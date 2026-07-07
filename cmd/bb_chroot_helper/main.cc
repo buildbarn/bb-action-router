@@ -40,9 +40,11 @@
 
 namespace fs = std::filesystem;
 
-// We drop down to a non-root user to run actions.
-constexpr int kBuildUid = 1000;
-constexpr int kBuildGid = 1000;
+// We drop down to a non-root user to run actions. These are the host-side
+// uid/gid the helper setuid()s to before unsharing; the in-namespace id the
+// process then appears as is configurable via --build-user.
+constexpr int kHostUid = 1000;
+constexpr int kHostGid = 1000;
 
 // These are mounted by the container runtime.
 static const std::set<std::string> kKeepList = {"proc", "sys", "dev", "tmp", "runner"};
@@ -67,6 +69,29 @@ static bool should_keep_folder(const std::string& name) {
   // cleanup (flushing buffers, atexit). The print above is unbuffered, so it'll
   // show up in stderr either way.
   _exit(1);
+}
+
+static int parse_uid(const std::string& value, const std::string& flag) {
+  try {
+    size_t pos = 0;
+    int parsed = std::stoi(value, &pos);
+    if (pos != value.size() || parsed < 0) {
+      die("invalid value for " + flag + ": " + value);
+    }
+    return parsed;
+  } catch (const std::exception&) {
+    die("invalid value for " + flag + ": " + value);
+  }
+}
+
+// Parse a "UID:GID" pair (e.g. "1000:1000")
+static void parse_build_user(const std::string& value, int* uid, int* gid) {
+  size_t colon = value.find(':');
+  if (colon == std::string::npos) {
+    die("invalid value for --build-user (want UID:GID): " + value);
+  }
+  *uid = parse_uid(value.substr(0, colon), "--build-user uid");
+  *gid = parse_uid(value.substr(colon + 1), "--build-user gid");
 }
 
 [[noreturn]] static void die_errno(const std::string& msg) {
@@ -288,17 +313,19 @@ static void prepare_root(const std::string& docker_root) {
 
 // We don't want to overwrite /etc/passwd as that would mess with the CAS
 // so instead we have the image fetcher manage it and here we just assert
-// that there's an entry for the uid that processes inside this user
-// namespace see (uid 0).
-static void assert_build_user_exists(const std::string& docker_root) {
+// that there's an entry for the uid/gid that processes inside this user
+// namespace.
+static void assert_build_user_exists(const std::string& docker_root, int build_uid, int build_gid) {
   std::string passwd_path = docker_root + "/etc/passwd";
   std::ifstream f(passwd_path);
   if (!f) {
     die("cannot read " + passwd_path);
   }
   std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-  if (content.find(":x:0:0:") == std::string::npos) {
-    die(passwd_path + " has no uid 0 entry (should be set by the docker root fetcher)");
+  std::string needle = ":x:" + std::to_string(build_uid) + ":" + std::to_string(build_gid) + ":";
+  if (content.find(needle) == std::string::npos) {
+    die(passwd_path + " has no uid " + std::to_string(build_uid) +
+        " entry (should be set by the docker root fetcher)");
   }
 }
 
@@ -530,6 +557,9 @@ int main(int argc, char** argv) {
   std::string docker_image_ref;
   std::string fetcher_socket = "/var/run/fetcher/fetcher.sock";
   bool isolate_network = false;
+  // In-namespace uid/gid the action runs as inside of the helper sandbox.
+  int build_uid = 0;
+  int build_gid = 0;
   int cmd_start = 1;
 
   for (int i = 1; i < argc; i++) {
@@ -541,6 +571,8 @@ int main(int argc, char** argv) {
       docker_image_ref = arg.substr(prefix.size());
     } else if ((prefix = "--fetcher-socket="), arg.rfind(prefix, 0) == 0) {
       fetcher_socket = arg.substr(prefix.size());
+    } else if ((prefix = "--build-user="), arg.rfind(prefix, 0) == 0) {
+      parse_build_user(arg.substr(prefix.size()), &build_uid, &build_gid);
     } else if (arg == "--network-isolation") {
       isolate_network = true;
     } else if (arg == "--no-network-isolation") {
@@ -555,6 +587,7 @@ int main(int argc, char** argv) {
     fprintf(stderr,
             "Usage: %s --docker-image-ref=REF "
             "[--fetcher-socket=PATH] "
+            "[--build-user=UID:GID] "
             "[--network-isolation|--no-network-isolation] "
             "<command> [args...]\n",
             argv[0]);
@@ -570,7 +603,7 @@ int main(int argc, char** argv) {
   auto docker_root = acquire_docker_root(fetcher_socket, docker_image_ref);
 
   // (as root) prepare filesystem
-  assert_build_user_exists(docker_root);
+  assert_build_user_exists(docker_root, build_uid, build_gid);
   clean_stale_files_from_root();
   prepare_root(docker_root);
 
@@ -578,10 +611,10 @@ int main(int argc, char** argv) {
   if (setgroups(0, nullptr) != 0) {
     die_errno("setgroups");
   }
-  if (setgid(kBuildGid) != 0) {
+  if (setgid(kHostGid) != 0) {
     die_errno("setgid");
   }
-  if (setuid(kBuildUid) != 0) {
+  if (setuid(kHostUid) != 0) {
     die_errno("setuid");
   }
 
@@ -600,9 +633,9 @@ int main(int argc, char** argv) {
   // Setting the uid/gid maps below won't work without this.
   prctl(PR_SET_DUMPABLE, 1, 0, 0, 0);
 
-  write_file("/proc/self/uid_map", "0 " + std::to_string(kBuildUid) + " 1\n");
+  write_file("/proc/self/uid_map", std::to_string(build_uid) + " " + std::to_string(kHostUid) + " 1\n");
   write_file("/proc/self/setgroups", "deny");
-  write_file("/proc/self/gid_map", "0 " + std::to_string(kBuildGid) + " 1\n");
+  write_file("/proc/self/gid_map", std::to_string(build_gid) + " " + std::to_string(kHostGid) + " 1\n");
 
   if (isolate_network) {
     bring_up_loopback();

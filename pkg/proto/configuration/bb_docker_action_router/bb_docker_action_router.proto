@@ -6,6 +6,7 @@ import "google/protobuf/duration.proto";
 import "github.com/buildbarn/bb-storage/pkg/proto/configuration/blobstore/blobstore.proto";
 import "github.com/buildbarn/bb-storage/pkg/proto/configuration/global/global.proto";
 import "github.com/buildbarn/bb-storage/pkg/proto/configuration/grpc/grpc.proto";
+import "github.com/buildbarn/bb-action-router/pkg/proto/configuration/build_user/build_user.proto";
 import "github.com/buildbarn/bb-action-router/pkg/proto/configuration/registry_auth/registry_auth.proto";
 
 option go_package = "github.com/buildbarn/bb-action-router/pkg/proto/configuration/bb_docker_action_router";
@@ -29,6 +30,12 @@ message ApplicationConfiguration {
   // with a ContainerBaseImage matching a key in this map, it will behave
   // as if the image ref was equal to the map value corresponding to the key.
   map<string, string> container_image_replacements = 5;
+
+  // Identity injected into the image's /etc/passwd and /etc/group (inline
+  // mode) and passed as --build-user to bb_chroot_helper (bind-mount
+  // mode). In bind-mount mode this must match the docker_root_fetcher's
+  // build_user. Defaults to name="root", uid=0, gid=0.
+  buildbarn.configuration.build_user.BuildUser build_user = 8;
 
   // Selects which rewriting strategy this action router applies. Each
   // deployment runs in exactly one mode.

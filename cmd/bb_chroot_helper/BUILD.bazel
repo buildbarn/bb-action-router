@@ -22,7 +22,6 @@ cc_binary(
     # Produce a fully static binary as we run distroless.
     features = [
         "fully_static_link",
-        "static_link_cpp_runtimes",
     ],
     target_compatible_with = ["@platforms//os:linux"],
     visibility = ["//visibility:public"],

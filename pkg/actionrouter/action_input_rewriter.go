@@ -59,6 +59,7 @@ func NewActionInputRewriter(
 	chrootHelperPath string,
 	imagePuller *docker.ImagePuller,
 	containerImageReplacements map[string]string,
+	buildUser blobstore.UnixUser,
 ) (*ActionInputRewriter, error) {
 	if chrootHelperPath == "" {
 		return nil, status.Error(codes.InvalidArgument, "chrootHelperPath must be set")
@@ -68,7 +69,7 @@ func NewActionInputRewriter(
 		maximumMessageSizeBytes:    maximumMessageSizeBytes,
 		chrootHelperPath:           chrootHelperPath,
 		containerImageReplacements: containerImageReplacements,
-		uploader:                   NewImageToCasUploader(imagePuller, cas),
+		uploader:                   NewImageToCasUploader(imagePuller, cas, buildUser),
 		refStore:                   blobstore.NewActionCacheRefStore(actionCache, maximumMessageSizeBytes),
 		dirTreeVerifier:            blobstore.NewDirTreeVerifier(cas, maximumMessageSizeBytes),
 		cache:                      cache.New(3*time.Hour, 1*time.Minute),

@@ -23,6 +23,7 @@ type ImageToCASUploader struct {
 	puller     *docker.ImagePuller
 	batchedCas bb_blobstore.BlobAccess
 	casFlusher func(context.Context) error
+	buildUser  blobstore.UnixUser
 }
 
 var imagePullDurationSeconds = promauto.NewHistogramVec(
@@ -37,7 +38,7 @@ var imagePullDurationSeconds = promauto.NewHistogramVec(
 )
 
 // NewImageToCasUploader creates a new ImageToCASUploader.
-func NewImageToCasUploader(puller *docker.ImagePuller, cas bb_blobstore.BlobAccess) *ImageToCASUploader {
+func NewImageToCasUploader(puller *docker.ImagePuller, cas bb_blobstore.BlobAccess, buildUser blobstore.UnixUser) *ImageToCASUploader {
 	// Use batched storage to improve upload performance. Parameters are tuned for a local block storage implementation
 	// and the main benefit of using it is that the Put operations effectively become non-blocking.
 	// Use a semaphore to limit concurrency during batch uploads
@@ -54,6 +55,7 @@ func NewImageToCasUploader(puller *docker.ImagePuller, cas bb_blobstore.BlobAcce
 		puller:     puller,
 		batchedCas: batchedCAS,
 		casFlusher: casFlusher,
+		buildUser:  buildUser,
 	}
 }
 
@@ -120,7 +122,7 @@ func (u *ImageToCASUploader) uploadImageToCASImpl(ctx context.Context, ref strin
 	//   network bandwidth (both to storage and to Artifactory)
 	// - would need to handle whiteout and overwrites when merging multiple layers.
 	extractor := blobstore.NewCASUploadingLayerExtractor(u.batchedCas, digestFunction)
-	visitor := blobstore.NewBuildUserInjectingVisitor(extractor)
+	visitor := blobstore.NewBuildUserInjectingVisitor(extractor, u.buildUser)
 	for i, layer := range layers {
 		log.Printf("Image %s, processing layer %d...", ref, i+1)
 

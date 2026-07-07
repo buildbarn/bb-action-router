@@ -8,6 +8,7 @@ proto_library(
     import_prefix = "github.com/buildbarn/bb-action-router",
     visibility = ["//visibility:public"],
     deps = [
+        "//pkg/proto/configuration/build_user:build_user_proto",
         "//pkg/proto/configuration/registry_auth:registry_auth_proto",
         "@com_github_buildbarn_bb_storage//pkg/proto/configuration/global:global_proto",
         "@protobuf//:duration_proto",
@@ -20,6 +21,7 @@ go_proto_library(
     proto = ":docker_root_fetcher_proto",
     visibility = ["//visibility:public"],
     deps = [
+        "//pkg/proto/configuration/build_user",
         "//pkg/proto/configuration/registry_auth",
         "@com_github_buildbarn_bb_storage//pkg/proto/configuration/global",
     ],

@@ -42,6 +42,10 @@ func runHelper(helperPath, fetcherSocket, imageRef string, extraArgs []string, c
 	args := []string{
 		"--docker-image-ref=" + imageRef,
 		"--fetcher-socket=" + fetcherSocket,
+		// Exercise the configurable path with a non-default build user; the
+		// seeded /etc/passwd has a matching build:1000:1000 entry. (The
+		// default is the in-namespace root user, 0:0.)
+		"--build-user=1000:1000",
 	}
 	args = append(args, extraArgs...)
 	args = append(args, command...)
@@ -92,7 +96,7 @@ func setupDockerRoot(root string) error {
 		}
 	}
 	if err := os.WriteFile(filepath.Join(root, "etc/passwd"),
-		[]byte("root:x:0:0::/tmp:/bin/sh\n"), 0o644); err != nil {
+		[]byte("root:x:0:0::/tmp:/bin/sh\nbuild:x:1000:1000::/tmp:/bin/sh\n"), 0o644); err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(root, "etc/group"),
