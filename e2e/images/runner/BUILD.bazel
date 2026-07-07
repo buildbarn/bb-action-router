@@ -22,7 +22,7 @@ image_layer(
         "/bin/bb_runner": ":bb_runner_pure",
         "/bin/bb_chroot_helper": "//cmd/bb_chroot_helper:bb_chroot_helper",
         "/bin/bb_chroot_helper_privileged": "//cmd/bb_chroot_helper_privileged:bb_chroot_helper_privileged",
-        # The inline helper looks up the "worker" user.
+        # The inline helper looks up the "build" user.
         "/etc/passwd": "passwd",
         "/etc/group": "group",
     },

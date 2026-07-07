@@ -17,7 +17,7 @@ import (
 	"github.com/buildbarn/bb-action-router/pkg/actionrouter"
 )
 
-const workerUser = "worker"
+const buildUser = "build"
 
 // userCredentials holds UID and GID for a user
 type userCredentials struct {
@@ -31,8 +31,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Look up worker user credentials before the chroot changes /etc/passwd
-	creds, err := lookupUser(workerUser)
+	// Look up build user credentials before the chroot changes /etc/passwd
+	creds, err := lookupUser(buildUser)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "bb_chroot_helper: %v\n", err)
 		os.Exit(1)
@@ -110,10 +110,10 @@ func run(chrootDir, workingDir string, creds userCredentials, args []string) err
 		return err
 	}
 
-	// Create the worker user inside the chroot so that user lookups
+	// Create the build user inside the chroot so that user lookups
 	// (e.g. tilde expansion) work. Don't use useradd as it may not
 	// exist in minimal container images.
-	if err := createWorkerUser(chrootDir, creds); err != nil {
+	if err := createBuildUser(chrootDir, creds); err != nil {
 		return err
 	}
 
@@ -204,24 +204,24 @@ func fileContainsUser(path, username string) (bool, error) {
 	return false, nil
 }
 
-func createWorkerUser(chrootDir string, creds userCredentials) error {
+func createBuildUser(chrootDir string, creds userCredentials) error {
 	passwdPath := filepath.Join(chrootDir, "etc/passwd")
-	if exists, err := fileContainsUser(passwdPath, workerUser); err != nil {
-		return fmt.Errorf("failed to check /etc/passwd for worker user: %w", err)
+	if exists, err := fileContainsUser(passwdPath, buildUser); err != nil {
+		return fmt.Errorf("failed to check /etc/passwd for build user: %w", err)
 	} else if !exists {
-		passwdLine := fmt.Sprintf("%s:x:%d:%d::/tmp:/bin/sh\n", workerUser, creds.uid, creds.gid)
+		passwdLine := fmt.Sprintf("%s:x:%d:%d::/tmp:/bin/sh\n", buildUser, creds.uid, creds.gid)
 		if err := appendToFile(passwdPath, passwdLine); err != nil {
-			return fmt.Errorf("failed to append worker user to /etc/passwd: %w", err)
+			return fmt.Errorf("failed to append build user to /etc/passwd: %w", err)
 		}
 	}
 
 	groupPath := filepath.Join(chrootDir, "etc/group")
-	if exists, err := fileContainsUser(groupPath, workerUser); err != nil {
-		return fmt.Errorf("failed to check /etc/group for worker group: %w", err)
+	if exists, err := fileContainsUser(groupPath, buildUser); err != nil {
+		return fmt.Errorf("failed to check /etc/group for build group: %w", err)
 	} else if !exists {
-		groupLine := fmt.Sprintf("%s:x:%d:\n", workerUser, creds.gid)
+		groupLine := fmt.Sprintf("%s:x:%d:\n", buildUser, creds.gid)
 		if err := appendToFile(groupPath, groupLine); err != nil {
-			return fmt.Errorf("failed to append worker group to /etc/group: %w", err)
+			return fmt.Errorf("failed to append build group to /etc/group: %w", err)
 		}
 	}
 
