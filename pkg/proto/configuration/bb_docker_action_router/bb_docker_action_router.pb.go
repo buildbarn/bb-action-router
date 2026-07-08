@@ -37,7 +37,7 @@ type ApplicationConfiguration struct {
 	BuildUser                  *build_user.BuildUser             `protobuf:"bytes,8,opt,name=build_user,json=buildUser,proto3" json:"build_user,omitempty"`
 	// Types that are valid to be assigned to Mode:
 	//
-	//	*ApplicationConfiguration_BindMount
+	//	*ApplicationConfiguration_Sideloaded
 	//	*ApplicationConfiguration_Inline
 	Mode          isApplicationConfiguration_Mode `protobuf_oneof:"mode"`
 	unknownFields protoimpl.UnknownFields
@@ -123,10 +123,10 @@ func (x *ApplicationConfiguration) GetMode() isApplicationConfiguration_Mode {
 	return nil
 }
 
-func (x *ApplicationConfiguration) GetBindMount() *BindMountMode {
+func (x *ApplicationConfiguration) GetSideloaded() *SideloadedMode {
 	if x != nil {
-		if x, ok := x.Mode.(*ApplicationConfiguration_BindMount); ok {
-			return x.BindMount
+		if x, ok := x.Mode.(*ApplicationConfiguration_Sideloaded); ok {
+			return x.Sideloaded
 		}
 	}
 	return nil
@@ -145,19 +145,19 @@ type isApplicationConfiguration_Mode interface {
 	isApplicationConfiguration_Mode()
 }
 
-type ApplicationConfiguration_BindMount struct {
-	BindMount *BindMountMode `protobuf:"bytes,6,opt,name=bind_mount,json=bindMount,proto3,oneof"`
+type ApplicationConfiguration_Sideloaded struct {
+	Sideloaded *SideloadedMode `protobuf:"bytes,6,opt,name=sideloaded,proto3,oneof"`
 }
 
 type ApplicationConfiguration_Inline struct {
 	Inline *InlineMode `protobuf:"bytes,7,opt,name=inline,proto3,oneof"`
 }
 
-func (*ApplicationConfiguration_BindMount) isApplicationConfiguration_Mode() {}
+func (*ApplicationConfiguration_Sideloaded) isApplicationConfiguration_Mode() {}
 
 func (*ApplicationConfiguration_Inline) isApplicationConfiguration_Mode() {}
 
-type BindMountMode struct {
+type SideloadedMode struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	FetcherSocketPath string                 `protobuf:"bytes,1,opt,name=fetcher_socket_path,json=fetcherSocketPath,proto3" json:"fetcher_socket_path,omitempty"`
 	ChrootHelperPath  string                 `protobuf:"bytes,2,opt,name=chroot_helper_path,json=chrootHelperPath,proto3" json:"chroot_helper_path,omitempty"`
@@ -165,20 +165,20 @@ type BindMountMode struct {
 	sizeCache         protoimpl.SizeCache
 }
 
-func (x *BindMountMode) Reset() {
-	*x = BindMountMode{}
+func (x *SideloadedMode) Reset() {
+	*x = SideloadedMode{}
 	mi := &file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_docker_action_router_bb_docker_action_router_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BindMountMode) String() string {
+func (x *SideloadedMode) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BindMountMode) ProtoMessage() {}
+func (*SideloadedMode) ProtoMessage() {}
 
-func (x *BindMountMode) ProtoReflect() protoreflect.Message {
+func (x *SideloadedMode) ProtoReflect() protoreflect.Message {
 	mi := &file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_docker_action_router_bb_docker_action_router_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -190,19 +190,19 @@ func (x *BindMountMode) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BindMountMode.ProtoReflect.Descriptor instead.
-func (*BindMountMode) Descriptor() ([]byte, []int) {
+// Deprecated: Use SideloadedMode.ProtoReflect.Descriptor instead.
+func (*SideloadedMode) Descriptor() ([]byte, []int) {
 	return file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_docker_action_router_bb_docker_action_router_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *BindMountMode) GetFetcherSocketPath() string {
+func (x *SideloadedMode) GetFetcherSocketPath() string {
 	if x != nil {
 		return x.FetcherSocketPath
 	}
 	return ""
 }
 
-func (x *BindMountMode) GetChrootHelperPath() string {
+func (x *SideloadedMode) GetChrootHelperPath() string {
 	if x != nil {
 		return x.ChrootHelperPath
 	}
@@ -281,7 +281,7 @@ var File_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_docker
 
 const file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_docker_action_router_bb_docker_action_router_proto_rawDesc = "" +
 	"\n" +
-	"sgithub.com/buildbarn/bb-action-router/pkg/proto/configuration/bb_docker_action_router/bb_docker_action_router.proto\x12/buildbarn.configuration.bb_docker_action_router\x1a\x1egoogle/protobuf/duration.proto\x1aQgithub.com/buildbarn/bb-storage/pkg/proto/configuration/blobstore/blobstore.proto\x1aKgithub.com/buildbarn/bb-storage/pkg/proto/configuration/global/global.proto\x1aGgithub.com/buildbarn/bb-storage/pkg/proto/configuration/grpc/grpc.proto\x1aYgithub.com/buildbarn/bb-action-router/pkg/proto/configuration/build_user/build_user.proto\x1a_github.com/buildbarn/bb-action-router/pkg/proto/configuration/registry_auth/registry_auth.proto\"\xd8\x06\n" +
+	"sgithub.com/buildbarn/bb-action-router/pkg/proto/configuration/bb_docker_action_router/bb_docker_action_router.proto\x12/buildbarn.configuration.bb_docker_action_router\x1a\x1egoogle/protobuf/duration.proto\x1aQgithub.com/buildbarn/bb-storage/pkg/proto/configuration/blobstore/blobstore.proto\x1aKgithub.com/buildbarn/bb-storage/pkg/proto/configuration/global/global.proto\x1aGgithub.com/buildbarn/bb-storage/pkg/proto/configuration/grpc/grpc.proto\x1aYgithub.com/buildbarn/bb-action-router/pkg/proto/configuration/build_user/build_user.proto\x1a_github.com/buildbarn/bb-action-router/pkg/proto/configuration/registry_auth/registry_auth.proto\"\xda\x06\n" +
 	"\x18ApplicationConfiguration\x12T\n" +
 	"\fgrpc_servers\x18\x01 \x03(\v21.buildbarn.configuration.grpc.ServerConfigurationR\vgrpcServers\x12;\n" +
 	"\x1amaximum_message_size_bytes\x18\x02 \x01(\x03R\x17maximumMessageSizeBytes\x12E\n" +
@@ -289,15 +289,16 @@ const file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_dock
 	"\tblobstore\x18\x04 \x01(\v29.buildbarn.configuration.blobstore.BlobstoreConfigurationR\tblobstore\x12\xab\x01\n" +
 	"\x1ccontainer_image_replacements\x18\x05 \x03(\v2i.buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.ContainerImageReplacementsEntryR\x1acontainerImageReplacements\x12L\n" +
 	"\n" +
-	"build_user\x18\b \x01(\v2-.buildbarn.configuration.build_user.BuildUserR\tbuildUser\x12_\n" +
+	"build_user\x18\b \x01(\v2-.buildbarn.configuration.build_user.BuildUserR\tbuildUser\x12a\n" +
 	"\n" +
-	"bind_mount\x18\x06 \x01(\v2>.buildbarn.configuration.bb_docker_action_router.BindMountModeH\x00R\tbindMount\x12U\n" +
+	"sideloaded\x18\x06 \x01(\v2?.buildbarn.configuration.bb_docker_action_router.SideloadedModeH\x00R\n" +
+	"sideloaded\x12U\n" +
 	"\x06inline\x18\a \x01(\v2;.buildbarn.configuration.bb_docker_action_router.InlineModeH\x00R\x06inline\x1aM\n" +
 	"\x1fContainerImageReplacementsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x06\n" +
-	"\x04mode\"m\n" +
-	"\rBindMountMode\x12.\n" +
+	"\x04mode\"n\n" +
+	"\x0eSideloadedMode\x12.\n" +
 	"\x13fetcher_socket_path\x18\x01 \x01(\tR\x11fetcherSocketPath\x12,\n" +
 	"\x12chroot_helper_path\x18\x02 \x01(\tR\x10chrootHelperPath\"\xc2\x02\n" +
 	"\n" +
@@ -322,7 +323,7 @@ func file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_docke
 var file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_docker_action_router_bb_docker_action_router_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_docker_action_router_bb_docker_action_router_proto_goTypes = []any{
 	(*ApplicationConfiguration)(nil),         // 0: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration
-	(*BindMountMode)(nil),                    // 1: buildbarn.configuration.bb_docker_action_router.BindMountMode
+	(*SideloadedMode)(nil),                   // 1: buildbarn.configuration.bb_docker_action_router.SideloadedMode
 	(*InlineMode)(nil),                       // 2: buildbarn.configuration.bb_docker_action_router.InlineMode
 	nil,                                      // 3: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.ContainerImageReplacementsEntry
 	(*grpc.ServerConfiguration)(nil),         // 4: buildbarn.configuration.grpc.ServerConfiguration
@@ -338,7 +339,7 @@ var file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_docker
 	6, // 2: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.blobstore:type_name -> buildbarn.configuration.blobstore.BlobstoreConfiguration
 	3, // 3: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.container_image_replacements:type_name -> buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.ContainerImageReplacementsEntry
 	7, // 4: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.build_user:type_name -> buildbarn.configuration.build_user.BuildUser
-	1, // 5: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.bind_mount:type_name -> buildbarn.configuration.bb_docker_action_router.BindMountMode
+	1, // 5: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.sideloaded:type_name -> buildbarn.configuration.bb_docker_action_router.SideloadedMode
 	2, // 6: buildbarn.configuration.bb_docker_action_router.ApplicationConfiguration.inline:type_name -> buildbarn.configuration.bb_docker_action_router.InlineMode
 	8, // 7: buildbarn.configuration.bb_docker_action_router.InlineMode.image_pull_timeout:type_name -> google.protobuf.Duration
 	9, // 8: buildbarn.configuration.bb_docker_action_router.InlineMode.registry_authentication:type_name -> buildbarn.configuration.registry_auth.RegistryAuthenticationConfiguration
@@ -357,7 +358,7 @@ func file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_docke
 		return
 	}
 	file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_docker_action_router_bb_docker_action_router_proto_msgTypes[0].OneofWrappers = []any{
-		(*ApplicationConfiguration_BindMount)(nil),
+		(*ApplicationConfiguration_Sideloaded)(nil),
 		(*ApplicationConfiguration_Inline)(nil),
 	}
 	type x struct{}

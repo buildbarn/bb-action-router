@@ -35,7 +35,9 @@ spec:
           imagePullPolicy: Never
           command: ["/bin/bb_runner", "/var/config/runner.jsonnet"]
           securityContext:
-            # This is set to false by the bind-mount overlay.
+            # Privileged so bb_chroot_helper_privileged (real chroot) works;
+            # the userns bb_chroot_helper doesn't strictly need it, but all
+            # current overlays share this base and leave it on.
             privileged: true
           volumeMounts:
             - { name: config, mountPath: /var/config }

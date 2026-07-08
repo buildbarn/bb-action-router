@@ -2,7 +2,7 @@ local common = import 'common.libsonnet';
 
 // The scheduler delegates action routing to the bb_docker_action_router service
 // via the `remote` action router. That service rewrites docker actions (in
-// either inline or bind-mount mode) before they are queued for execution.
+// either inline or sideloaded mode) before they are queued for execution.
 {
   adminHttpServers: [{
     listenAddresses: [':7982'],

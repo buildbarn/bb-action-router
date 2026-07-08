@@ -33,7 +33,7 @@ const BazelInputRootDirectoryName = "bazel_exec_root"
 // resulting root digest replaces the action's original input root.
 //
 // Use this for deployments where actions run inside a real chroot
-// (privileged, e.g. inside a VM). For unprivileged bind-mount based
+// (privileged, e.g. inside a VM). For unprivileged sideloaded based
 // runners use ActionCmdRewriter instead.
 type ActionInputRewriter struct {
 	cas                        bb_blobstore.BlobAccess
@@ -203,7 +203,7 @@ func (r *ActionInputRewriter) rewriteAction(ctx context.Context, action *remotee
 		return nil, err
 	}
 
-	// Rewrite platform properties identically to the bind-mount rewriter so
+	// Rewrite platform properties identically to the sideloaded rewriter so
 	// that both modes target the same worker platform queue
 	// ({Flavor=chroot, Version=generic}, plus any pass-through properties).
 	updatedProperties := make([]*remoteexecution.Platform_Property, 0, len(action.Platform.Properties))

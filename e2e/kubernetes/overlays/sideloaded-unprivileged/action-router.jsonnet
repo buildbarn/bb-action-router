@@ -17,7 +17,7 @@
     contentAddressableStorage: { grpc: { client: { address: 'storage:8981' } } },
     actionCache: { grpc: { client: { address: 'storage:8981' } } },
   },
-  bindMount: {
+  sideloaded: {
     // The socket and helper are on the runner container's filesystem: the
     // fetcher sidecar and runner share the /var/fetcher volume, and the helper
     // is baked into the scratch runner image at /bin.

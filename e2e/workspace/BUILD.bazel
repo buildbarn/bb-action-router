@@ -4,6 +4,7 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 #   crane digest --platform linux/arm64 docker.io/library/debian:bookworm-slim
 #   crane digest --platform linux/amd64 docker.io/library/debian:bookworm-slim
 DEBIAN_SLIM_ARM64 = "docker://docker.io/library/debian@sha256:f1433d3ee18e12f45682b29d91b6356e54e40d6b47f5f8ac81e80f35cca8cfe7"
+
 DEBIAN_SLIM_AMD64 = "docker://docker.io/library/debian@sha256:b29f74a267526ae6ea104eed6c46133b0ca70ce812525df8cd5817698f0a624a"
 
 sh_test(
@@ -34,4 +35,16 @@ sh_test(
     },
     tags = ["no-local"],
     target_compatible_with = ["@platforms//cpu:x86_64"],
+)
+
+genrule(
+    name = "debug",
+    outs = ["debug.txt"],
+    cmd = "find . > $@",
+    exec_properties = {
+        "ContainerBaseImage": DEBIAN_SLIM_ARM64,
+        "OSFamily": "linux",
+    },
+    tags = ["no-local"],
+    target_compatible_with = ["@platforms//cpu:arm64"],
 )
