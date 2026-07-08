@@ -31,7 +31,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// actionHandler is the contract shared by ActionCmdRewriter (bind-mount
+// actionHandler is the contract shared by ActionCmdRewriter (sideloaded
 // mode) and ActionInputRewriter (inline mode).
 type actionHandler interface {
 	HandleAction(ctx context.Context, action *remoteexecution.Action, digestFunction digest.Function) (*remoteexecution.Action, error)
@@ -100,8 +100,8 @@ func buildRewriter(
 		return nil, util.StatusWrap(err, "Invalid build user")
 	}
 	switch m := configuration.Mode.(type) {
-	case *bb_docker_action_router.ApplicationConfiguration_BindMount:
-		helperPath := m.BindMount.ChrootHelperPath
+	case *bb_docker_action_router.ApplicationConfiguration_Sideloaded:
+		helperPath := m.Sideloaded.ChrootHelperPath
 		if helperPath == "" {
 			helperPath = "/bin/bb_chroot_helper"
 		}
@@ -109,7 +109,7 @@ func buildRewriter(
 			cas,
 			int(configuration.MaximumMessageSizeBytes),
 			helperPath,
-			m.BindMount.FetcherSocketPath,
+			m.Sideloaded.FetcherSocketPath,
 			configuration.ContainerImageReplacements,
 			buildUser,
 		)
@@ -141,7 +141,7 @@ func buildRewriter(
 			buildUser,
 		)
 	case nil:
-		return nil, status.Error(codes.InvalidArgument, "configuration.mode must be set (bind_mount or inline)")
+		return nil, status.Error(codes.InvalidArgument, "configuration.mode must be set (sideloaded or inline)")
 	default:
 		return nil, status.Errorf(codes.InvalidArgument, "configuration.mode has unexpected type %T", m)
 	}

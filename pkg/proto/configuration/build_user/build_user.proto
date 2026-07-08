@@ -6,10 +6,10 @@ option go_package = "github.com/buildbarn/bb-action-router/pkg/proto/configurati
 
 // BuildUser is the user identity injected into a materialized image's
 // /etc/passwd and /etc/group so that the in-namespace action process
-// resolves to a name. Its uid/gid must match the --build-uid/--build-gid
-// passed to bb_chroot_helper: in bind-mount mode the docker_root_fetcher
-// injects this entry while the action router passes the matching flags to
-// the helper, so the two deployments must be configured consistently.
+// resolves to a name. Its uid/gid must match the --build-user passed to
+// bb_chroot_helper: in sideloaded mode the docker_root_fetcher injects this
+// entry while the action router passes the matching flag to the helper, so
+// the two deployments must be configured consistently.
 //
 // If the whole message is omitted, defaults of name="root", uid=0,
 // gid=0 are applied. When the message is present its uid/gid are used

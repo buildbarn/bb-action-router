@@ -1,13 +1,28 @@
 # Kubernetes (KinD) e2e environment
 
 A minimal Buildbarn cluster for exercising `bb_docker_action_router` and the
-chroot helpers end to end, in either **inline** or **bind-mount** mode.
+chroot helpers end to end, across the supported router-mode / helper
+combinations.
 
-## inline / bind-mount mode selection
+## Combination selection
 
-The mode is selected entirely by the kustomize overlay, which swaps the
-router config and (for bind-mount) patches a `root-fetcher` sidecar into the
-executor Pod. The base manifests are identical for both.
+The combination is selected entirely by the kustomize overlay, which swaps the
+router config (inline vs sideloaded, and which helper binary the router points
+`chrootHelperPath` at) and, for sideloaded, patches a `root-fetcher` sidecar
+into the executor Pod. The base manifests are identical across combinations.
+
+Supported combinations (overlay = argument to `up.sh`):
+
+| overlay                   | router mode | helper                        | notes                                   |
+| ------------------------- | ----------- | ----------------------------- | --------------------------------------- |
+| `inline-unprivileged`     | inline      | `bb_chroot_helper` (userns)   | image root = action's merged input root |
+| `inline-privileged`       | inline      | `bb_chroot_helper_privileged` | real `chroot()` into the input root     |
+| `sideloaded-unprivileged` | sideloaded  | `bb_chroot_helper` (userns)   | root materialized by the fetcher sidecar |
+
+`sideloaded` + the privileged helper is intentionally unsupported: the
+privileged helper `chroot()`s into the root, which can't safely reuse the
+fetcher's shared, ref-counted cached roots (a stray bind-mount into a cached
+root could be clobbered when the worker cleans up the build dir).
 
 ## Images
 
@@ -26,8 +41,9 @@ manifests.
 cd e2e/kubernetes
 
 # Create the cluster (first run), build + load the local images, apply the
-# overlay, and wait for the rollout — all in one:
-./scripts/up.sh inline        # or: ./scripts/up.sh bind-mount
+# overlay, and wait for the rollout — all in one. The argument is the
+# combination (default: inline-unprivileged):
+./scripts/up.sh inline-unprivileged    # or: inline-privileged | sideloaded-unprivileged
 
 # Start a port forward (here it's in the background but you can use a separate
 # terminal).
