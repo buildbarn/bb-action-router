@@ -23,6 +23,7 @@
 
 #include <cerrno>
 #include <chrono>
+#include <climits>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -49,6 +50,13 @@ constexpr int kHostGid = 1000;
 // These are mounted by the container runtime.
 static const std::set<std::string> kKeepList = {"proc", "sys", "dev", "tmp", "runner"};
 static const std::vector<std::string> kEtcFiles = {"resolv.conf", "hostname", "hosts"};
+
+// In inline mode the action's original input root is nested under this
+// directory inside the merged tree (see ActionInputRewriter). We derive the
+// image root (everything above it) by splitting the working directory here,
+// and we never overlay this directory itself onto / (it holds the inputs,
+// which stay in place under the kept build dir).
+static constexpr const char* kBazelInputRootDir = "bazel_exec_root";
 
 // Xattr we set on every top-level entry we create in / so that the next run
 // can tell what to delete
@@ -260,6 +268,25 @@ static fs::path resolve_symlink_within(const fs::path& docker_root, const fs::pa
   return resolved;
 }
 
+// In inline mode there is no fetcher: the action's merged input root is the
+// helper's current working directory tree. Derive the image root by splitting
+// the CWD at the first kBazelInputRootDir component.
+static std::string derive_inline_docker_root() {
+  char buf[PATH_MAX];
+  if (getcwd(buf, sizeof(buf)) == nullptr) {
+    die_errno("getcwd");
+  }
+  fs::path cwd(buf);
+  fs::path acc("/");
+  for (const auto& part : cwd.relative_path()) {
+    if (part.string() == kBazelInputRootDir) {
+      return acc.string();
+    }
+    acc /= part;
+  }
+  die(std::string("could not find ") + kBazelInputRootDir + " in working directory " + cwd.string());
+}
+
 // This prepares the root dir for the subsequent `mount --bind` calls.  We need
 // empty dirs/files to be in place to act as mount points.  This needs to be
 // done while we're still root, hence the separate function.
@@ -357,7 +384,7 @@ static void bind_mount_etc_files(const std::string& docker_root) {
 
 // Overlay docker_root onto / and hide runner top-level dirs that don't
 // appear in docker_root.
-static void overlay_root_dirs(const std::string& docker_root) {
+static void overlay_root_dirs(const std::string& docker_root, bool require_deferred) {
   struct Overlay {
     std::string src;
     std::string dst;
@@ -416,9 +443,11 @@ static void overlay_root_dirs(const std::string& docker_root) {
   if (deferred_mount) {
     auto dst = "/" + deferred_name;
     bind_mount_ro(deferred_mount->src, dst, deferred_mount->extra_flags);
-  } else {
-    // We expect the fetcher to ensure that this directory exists in the materialized
-    // root. It not being there is likely a config error.
+  } else if (require_deferred) {
+    // In sideloaded mode we expect the fetcher to ensure that this directory (usually /var)
+    // exists in the materialized root. If we don't mount over it we'd be exposing
+    // the fetcher's image cache folder to the action.
+    // It not being there is likely a config error.
     die("docker_root parent '" + deferred_name + "' has no matching entry; expected fetcher to create it");
   }
 
@@ -583,9 +612,9 @@ int main(int argc, char** argv) {
     cmd_start = i + 1;
   }
 
-  if (docker_image_ref.empty() || cmd_start >= argc) {
+  if (cmd_start >= argc) {
     fprintf(stderr,
-            "Usage: %s --docker-image-ref=REF "
+            "Usage: %s [--docker-image-ref=REF] "
             "[--fetcher-socket=PATH] "
             "[--build-user=UID:GID] "
             "[--network-isolation|--no-network-isolation] "
@@ -598,9 +627,15 @@ int main(int argc, char** argv) {
     die("Must run as root");
   }
 
-  // Get docker root from fetcher. Keep the socket fd open — the fetcher
-  // releases the root when we close it (on exit).
-  auto docker_root = acquire_docker_root(fetcher_socket, docker_image_ref);
+  bool inline_mode = docker_image_ref.empty();
+  std::string docker_root;
+  if (inline_mode) {
+    docker_root = derive_inline_docker_root();
+  } else {
+    // Keep the socket fd open — the fetcher releases the root when we close
+    // it (on exit).
+    docker_root = acquire_docker_root(fetcher_socket, docker_image_ref);
+  }
 
   // (as root) prepare filesystem
   assert_build_user_exists(docker_root, build_uid, build_gid);
@@ -647,7 +682,7 @@ int main(int argc, char** argv) {
 
   // Do the fake chroot.
   bind_mount_etc_files(docker_root);
-  overlay_root_dirs(docker_root);
+  overlay_root_dirs(docker_root, !inline_mode);
 
   run_and_fwd_signals(&argv[cmd_start]);
 }
