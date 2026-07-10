@@ -25,70 +25,133 @@ message ApplicationConfiguration {
   // Configuration for blob storage.
   buildbarn.configuration.blobstore.BlobstoreConfiguration blobstore = 4;
 
-  // Map of ContainerBaseImage values to the native base image they should
-  // be replaced with. When the docker-action-router processes an action
-  // with a ContainerBaseImage matching a key in this map, it will behave
-  // as if the image ref was equal to the map value corresponding to the key.
-  map<string, string> container_image_replacements = 5;
+  // Ordered pipeline of operations applied to every action. This replaces
+  // the old fixed inline/sideloaded modes: each behaviour (command
+  // rewriting, platform-property editing, docker root merging, ...) is now a
+  // composable operation.
+  ActionPipeline pipeline = 9;
+}
 
-  // Identity injected into the image's /etc/passwd and /etc/group (inline
-  // mode) and passed as --build-user to bb_chroot_helper (sideloaded
-  // mode). In sideloaded mode this must match the docker_root_fetcher's
-  // build_user. Defaults to name="root", uid=0, gid=0.
-  buildbarn.configuration.build_user.BuildUser build_user = 8;
+// ActionPipeline is an ordered list of operations applied to each action.
+message ActionPipeline {
+  // Go text/template expression evaluated against the action; the pipeline
+  // runs only when it renders (trimmed) to a truthy value ("true"/"1"/any
+  // other non-empty string that is not "false"/"0"). An absent or empty
+  // condition means every action runs the pipeline, including ones that carry
+  // no docker image at all. Actions that don't match are returned unchanged.
+  // For docker use the guard `{{ne (.Platform.Get "ContainerBaseImage") ""}}`.
+  string condition = 1;
 
-  // Selects which rewriting strategy this action router applies. Each
-  // deployment runs in exactly one mode.
-  oneof mode {
-    // Sideloaded mode: rewrite the action's command to invoke
-    // bb_chroot_helper with an image ref. The docker image root is
-    // materialized out-of-band by the bb_docker_root_fetcher sidecar and
-    // surfaced to the helper over a socket, rather than being part of the
-    // action's input. Workers run unprivileged (user namespaces only) and
-    // don't need CAP_SYS_ADMIN.
-    SideloadedMode sideloaded = 6;
+  // Operations, applied in order. Each mutates the in-memory action
+  // (command, platform properties, environment, input root).
+  repeated Operation operations = 2;
+}
 
-    // Inline mode: pull the docker image, upload its tree to the cluster
-    // CAS, and merge it into the action's input root (the root is thus
-    // carried in-band with the inputs). The helper then treats that merged
-    // tree as the image root.
-    InlineMode inline = 7;
+// Operation is a single transformation applied to an action. Template strings
+// are Go text/template, evaluated against a context exposing these accessors
+// (RequestMetadata ones return "" when the client didn't supply metadata):
+//   .Platform.Get "name"       platform property value, "" if absent
+//   .WorkingDirectory          the command's current working directory
+//   .InvocationID              RequestMetadata.tool_invocation_id
+//   .TargetLabel               RequestMetadata.target_id
+//   .ActionMnemonic            RequestMetadata.action_mnemonic
+//   .ConfigurationID           RequestMetadata.configuration_id
+//   .CorrelatedInvocationsID   RequestMetadata.correlated_invocations_id
+// plus the funcs `trimPrefix` and `trimSuffix`. The RequestMetadata accessors
+// are stamp-style: the action cache is keyed on the original (pre-rewrite)
+// action, so referencing them does not cause cache misses.
+message Operation {
+  oneof kind {
+    AssertPlatformProperty assert_platform_property = 1;
+    MapPlatformProperty map_platform_property = 2;
+    EditPlatformProperty edit_platform_property = 3;
+    EditCommand edit_command = 4;
+    EditEnvironment edit_environment = 5;
+    MergeDockerRoot merge_docker_root = 6;
   }
 }
 
-// Sideloaded mode configuration. The image is pulled and materialized
-// by bb_docker_root_fetcher running as a sidecar to each worker.
-message SideloadedMode {
-  // Path to the docker_root_fetcher Unix socket on the runner containers.
-  // Passed as --fetcher-socket to bb_chroot_helper.
-  string fetcher_socket_path = 1;
+// AssertPlatformProperty rejects the action (InvalidArgument) unless the named
+// platform property's value matches the given RE2 regular expression. Used to
+// enforce e.g. a "docker://" prefix and a pinned sha256 digest.
+message AssertPlatformProperty {
+  string property = 1;
 
-  // Path to the bb_chroot_helper binary on the runner containers.
-  // Default: "/bin/bb_chroot_helper"
-  string chroot_helper_path = 2;
+  // RE2 regular expression, matched unanchored: use "^...$" to require the
+  // whole value to match. Must be set, since an empty expression matches
+  // everything (an absent property included) and would assert nothing.
+  string regex = 2;
 }
 
-// Inline mode configuration. The image is pulled by the action router
-// itself and uploaded to the cluster CAS.
-message InlineMode {
-  // Path to the bb_chroot_helper_privileged binary inside the runner
-  // container. The binary must exist at this path in the runner image
-  // (it's not provided by the action router).
-  // Default: "/buildbarn/bb_chroot_helper_privileged"
-  string chroot_helper_path = 1;
+// MapPlatformProperty rewrites a platform property's value in place using an
+// exact-match lookup table. Values not present as a key are left unchanged.
+message MapPlatformProperty {
+  string property = 1;
+  map<string, string> replacements = 2;
+}
+
+// EditPlatformProperty removes and/or adds platform properties. Removals are
+// applied first (all properties with a listed name), then additions are
+// appended (duplicate names are allowed, per REv2). Properties are re-sorted
+// afterward, as REv2 requires.
+message EditPlatformProperty {
+  repeated string remove = 1;
+  repeated PlatformPropertyEntry add = 2;
+}
+
+message PlatformPropertyEntry {
+  string name = 1;
+  // Go text/template rendered to the property value.
+  string value = 2;
+}
+
+// EditCommand wraps the command's argument vector: each template in
+// prepend_arguments is rendered to one argv element inserted before the
+// original arguments, and each in append_arguments to one inserted after. The
+// original arguments are preserved verbatim (they are an array, so no quoting
+// is involved) — the command can only be wrapped, not edited. A template that
+// renders to the empty string is dropped, so optional flags can be expressed
+// with `{{if ...}}--flag{{end}}`.
+message EditCommand {
+  repeated string prepend_arguments = 1;
+  repeated string append_arguments = 2;
+}
+
+// EditEnvironment removes and/or sets environment variables on the command.
+// Removals are applied first, then sets (add or overwrite). Variables are
+// re-sorted by name afterward, as REv2 requires.
+message EditEnvironment {
+  repeated string remove = 1;
+  map<string, string> set = 2;
+}
+
+// MergeDockerRoot pulls the docker image referenced by `image_ref`, uploads
+// its tree to the cluster CAS, and merges it into the action's input root:
+// the docker contents become the top level and the action's original input
+// root is nested under "bazel_exec_root". The command's working directory is
+// rewritten to sit under that subdirectory accordingly. Both helpers derive the
+// image root by splitting the working directory at that name, so it is fixed.
+message MergeDockerRoot {
+  // Go text/template rendered to the docker image reference to pull, e.g.
+  // `{{.Platform.Get "ContainerBaseImage" | trimPrefix "docker://"}}`.
+  string image_ref = 1;
+
+  // User identity injected into the merged image's /etc/passwd and
+  // /etc/group. Its uid/gid must match the `[build-user]` in the config file of
+  // the bb_chroot_helper the action is wrapped in. Defaults to name="root",
+  // uid=0, gid=0; for any other uid the name has to be set.
+  buildbarn.configuration.build_user.BuildUser build_user = 3;
 
   // Maximum compressed size of Docker images (sum of all layers).
   // Default: 10 GB
-  int64 maximum_image_size_bytes = 2;
+  int64 maximum_image_size_bytes = 4;
 
-  // Timeout for pulling Docker images.
-  // Default: 5 minutes
-  google.protobuf.Duration image_pull_timeout = 3;
+  // Timeout for pulling Docker images. Default: 5 minutes.
+  google.protobuf.Duration image_pull_timeout = 5;
 
-  // Authentication configuration for Docker registries.
-  // Each entry can specify either inline credentials or a path to a Docker
-  // config.json file.
+  // Authentication configuration for Docker registries. Each entry can specify
+  // either inline credentials or a path to a Docker config.json file.
   repeated
       buildbarn.configuration.registry_auth.RegistryAuthenticationConfiguration
-          registry_authentication = 4;
+          registry_authentication = 6;
 }

@@ -3,16 +3,19 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "actionrouter",
     srcs = [
-        "action_cmd_rewriter.go",
-        "action_input_rewriter.go",
         "build_user.go",
         "image_to_cas_uploader.go",
+        "op_merge.go",
+        "operations.go",
+        "pipeline.go",
     ],
     importpath = "github.com/buildbarn/bb-action-router/pkg/actionrouter",
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/blobstore",
         "//pkg/docker",
+        "//pkg/fetcher",
+        "//pkg/proto/configuration/bb_docker_action_router",
         "//pkg/proto/configuration/build_user",
         "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
         "@com_github_buildbarn_bb_remote_execution//pkg/blobstore",
@@ -33,11 +36,16 @@ go_library(
 
 go_test(
     name = "actionrouter_test",
-    srcs = ["build_user_test.go"],
+    srcs = [
+        "build_user_test.go",
+        "operations_test.go",
+    ],
     embed = [":actionrouter"],
     deps = [
         "//pkg/blobstore",
+        "//pkg/proto/configuration/bb_docker_action_router",
         "//pkg/proto/configuration/build_user",
+        "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
         "@com_github_stretchr_testify//require",
     ],
 )
