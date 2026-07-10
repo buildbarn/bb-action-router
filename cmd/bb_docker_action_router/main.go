@@ -8,12 +8,9 @@ import (
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	"github.com/buildbarn/bb-action-router/pkg/actionrouter"
-	"github.com/buildbarn/bb-action-router/pkg/docker"
-	"github.com/buildbarn/bb-action-router/pkg/fetcher"
 	bb_docker_action_router "github.com/buildbarn/bb-action-router/pkg/proto/configuration/bb_docker_action_router"
 	"github.com/buildbarn/bb-remote-execution/pkg/proto/remoteactionrouter"
 	"github.com/buildbarn/bb-storage/pkg/auth"
-	bb_blobstore "github.com/buildbarn/bb-storage/pkg/blobstore"
 	blobstore_configuration "github.com/buildbarn/bb-storage/pkg/blobstore/configuration"
 	"github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/buildbarn/bb-storage/pkg/global"
@@ -30,12 +27,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
-
-// actionHandler is the contract shared by ActionCmdRewriter (sideloaded
-// mode) and ActionInputRewriter (inline mode).
-type actionHandler interface {
-	HandleAction(ctx context.Context, action *remoteexecution.Action, digestFunction digest.Function) (*remoteexecution.Action, error)
-}
 
 func main() {
 	program.RunMain(func(ctx context.Context, siblingsGroup, dependenciesGroup program.Group) error {
@@ -63,15 +54,13 @@ func main() {
 			return util.StatusWrap(err, "Failed to create blobstore")
 		}
 
-		rewriter, err := buildRewriter(&configuration, contentAddressableStorage, actionCache)
+		pipeline, err := actionrouter.NewPipeline(&configuration, contentAddressableStorage, actionCache)
 		if err != nil {
-			return util.StatusWrap(err, "Failed to create action rewriter")
+			return util.StatusWrap(err, "Failed to create action pipeline")
 		}
 
 		service := &dockerActionRouterServer{
-			contentAddressableStorage: contentAddressableStorage,
-			actionCache:               actionCache,
-			rewriter:                  rewriter,
+			pipeline: pipeline,
 		}
 
 		if err := bb_grpc.NewServersFromConfigurationAndServe(
@@ -91,67 +80,9 @@ func main() {
 	})
 }
 
-func buildRewriter(
-	configuration *bb_docker_action_router.ApplicationConfiguration,
-	cas, actionCache bb_blobstore.BlobAccess,
-) (actionHandler, error) {
-	buildUser, err := actionrouter.BuildUserFromProto(configuration.BuildUser)
-	if err != nil {
-		return nil, util.StatusWrap(err, "Invalid build user")
-	}
-	switch m := configuration.Mode.(type) {
-	case *bb_docker_action_router.ApplicationConfiguration_Sideloaded:
-		helperPath := m.Sideloaded.ChrootHelperPath
-		if helperPath == "" {
-			helperPath = "/bin/bb_chroot_helper"
-		}
-		return actionrouter.NewActionCmdRewriter(
-			cas,
-			int(configuration.MaximumMessageSizeBytes),
-			helperPath,
-			m.Sideloaded.FetcherSocketPath,
-			configuration.ContainerImageReplacements,
-			buildUser,
-		)
-	case *bb_docker_action_router.ApplicationConfiguration_Inline:
-		helperPath := m.Inline.ChrootHelperPath
-		if helperPath == "" {
-			helperPath = "/buildbarn/bb_chroot_helper_privileged"
-		}
-		maxImageSize := m.Inline.MaximumImageSizeBytes
-		if maxImageSize == 0 {
-			maxImageSize = 10 * 1024 * 1024 * 1024
-		}
-		pullTimeout := 5 * time.Minute
-		if m.Inline.ImagePullTimeout != nil {
-			pullTimeout = m.Inline.ImagePullTimeout.AsDuration()
-		}
-		authConfig, err := fetcher.ParseRegistryAuth(m.Inline.RegistryAuthentication)
-		if err != nil {
-			return nil, util.StatusWrap(err, "Failed to parse registry authentication")
-		}
-		puller := docker.NewImagePuller(authConfig, maxImageSize, pullTimeout)
-		return actionrouter.NewActionInputRewriter(
-			cas,
-			actionCache,
-			int(configuration.MaximumMessageSizeBytes),
-			helperPath,
-			puller,
-			configuration.ContainerImageReplacements,
-			buildUser,
-		)
-	case nil:
-		return nil, status.Error(codes.InvalidArgument, "configuration.mode must be set (sideloaded or inline)")
-	default:
-		return nil, status.Errorf(codes.InvalidArgument, "configuration.mode has unexpected type %T", m)
-	}
-}
-
 type dockerActionRouterServer struct {
 	remoteactionrouter.UnimplementedActionRouterServer
-	contentAddressableStorage bb_blobstore.BlobAccess
-	actionCache               bb_blobstore.BlobAccess
-	rewriter                  actionHandler
+	pipeline *actionrouter.Pipeline
 }
 
 var (
@@ -211,7 +142,7 @@ func (s *dockerActionRouterServer) routeActionImpl(ctx context.Context, request 
 		return nil, util.StatusWrap(err, "Failed to create digest function")
 	}
 
-	updatedAction, err := s.rewriter.HandleAction(ctx, action, digestFunction)
+	updatedAction, err := s.pipeline.HandleAction(ctx, action, request.RequestMetadata, digestFunction)
 	if err != nil {
 		return nil, util.StatusWrap(err, "Failed to handle Docker action")
 	}

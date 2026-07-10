@@ -17,16 +17,35 @@
     contentAddressableStorage: { grpc: { client: { address: 'storage:8981' } } },
     actionCache: { grpc: { client: { address: 'storage:8981' } } },
   },
-  inline: {
-    // The unprivileged (userns) helper. Inline mode gives it no
-    // --docker-image-ref, so it treats the action's merged input root as the
-    // image root instead of fetching one.
-    chrootHelperPath: '/bin/bb_chroot_helper',
-    maximumImageSizeBytes: 10 * 1024 * 1024 * 1024,
-    imagePullTimeout: '300s',
-    registryAuthentication: [
-      { anonymous: { registry: 'ghcr.io' } },
-      { anonymous: { registry: 'index.docker.io' } },
+  pipeline: {
+    // Only rewrite actions that carry a docker base image.
+    condition: '{{ne (.Platform.Get "ContainerBaseImage") ""}}',
+    operations: [
+      // Require a docker:// prefix and a pinned sha256 digest.
+      { assertPlatformProperty: {
+        property: 'ContainerBaseImage',
+        regex: '^docker://.+@sha256:[0-9a-f]{64}$',
+      } },
+      // Pull the image, upload its tree to the CAS, and merge it into the
+      // action's input root (original inputs nested under bazel_exec_root;
+      // working directory rewritten accordingly).
+      { mergeDockerRoot: {
+        imageRef: '{{.Platform.Get "ContainerBaseImage" | trimPrefix "docker://"}}',
+        maximumImageSizeBytes: 10 * 1024 * 1024 * 1024,
+        imagePullTimeout: '300s',
+        registryAuthentication: [
+          { anonymous: { registry: 'ghcr.io' } },
+          { anonymous: { registry: 'index.docker.io' } },
+        ],
+      } },
+      // Prepend the (unprivileged, userns) helper. With no --docker-image-ref
+      // it treats the merged input root as the image root.
+      { editCommand: { prependArguments: ['/bin/bb_chroot_helper'] } },
+      // Retarget the worker platform queue.
+      { editPlatformProperty: {
+        remove: ['ContainerBaseImage', 'requires-network', 'requires-external', 'Flavor', 'Version'],
+        add: [{ name: 'Flavor', value: 'chroot' }, { name: 'Version', value: 'generic' }],
+      } },
     ],
   },
 }
