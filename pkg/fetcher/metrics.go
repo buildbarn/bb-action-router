@@ -27,6 +27,11 @@ type Metrics struct {
 	RootsGauge        metric.Int64UpDownCounter
 	ImagePullCount    metric.Int64Counter
 	ImagePrepDuration metric.Float64Histogram
+
+	// EvictionIdleDuration records, for every evicted root, how long it sat
+	// unused before it was evicted. A distribution skewed towards zero means
+	// the cache is undersized for the workload.
+	EvictionIdleDuration metric.Float64Histogram
 }
 
 // InitOTLPMetrics initializes OTLP metrics for the given app name.
@@ -125,13 +130,21 @@ func newMetrics(appName string) (*Metrics, func(context.Context) error, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	evictionIdleDuration, err := meter.Float64Histogram(
+		prefix+"eviction_idle_duration_seconds",
+		metric.WithExplicitBucketBoundaries(exponentialBoundaries(1, 2, 20)...),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	return &Metrics{
-		Ctx:               context.Background(),
-		AcquireTotal:      acquireTotal,
-		AcquireDuration:   acquireDuration,
-		RootsGauge:        rootsGauge,
-		ImagePullCount:    imagePullCount,
-		ImagePrepDuration: imagePrepDuration,
+		Ctx:                  context.Background(),
+		AcquireTotal:         acquireTotal,
+		AcquireDuration:      acquireDuration,
+		RootsGauge:           rootsGauge,
+		ImagePullCount:       imagePullCount,
+		ImagePrepDuration:    imagePrepDuration,
+		EvictionIdleDuration: evictionIdleDuration,
 	}, nil, nil
 }
