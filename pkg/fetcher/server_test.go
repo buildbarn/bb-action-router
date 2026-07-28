@@ -463,6 +463,28 @@ func TestEvictionDeletesRootDirectory(t *testing.T) {
 	}
 }
 
+// A singleflight follower that only gets scheduled after the root has been
+// evicted must not be handed the deleted path.
+func TestAttachLeaseRejectsEvictedRoot(t *testing.T) {
+	mat := newFakeMaterializer(t)
+	s := newTestServer(t, mat, ServerOptions{MaxRoots: 1})
+
+	_, release, err := s.Acquire(context.Background(), "image-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := rootFieldsOf(t, s, "image-a")
+	release()
+
+	if _, _, err := s.Acquire(context.Background(), "image-b"); err != nil {
+		t.Fatal(err)
+	}
+
+	if s.attachLease("image-a", root, new(leaseToken)) {
+		t.Error("expected attachLease to reject an evicted root")
+	}
+}
+
 func TestAcquireFailsWhenAllSlotsAreInUse(t *testing.T) {
 	mat := newFakeMaterializer(t)
 	s := newTestServer(t, mat, ServerOptions{MaxRoots: 1})
