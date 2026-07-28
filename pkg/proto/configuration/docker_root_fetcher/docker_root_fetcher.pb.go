@@ -42,6 +42,8 @@ type ApplicationConfiguration struct {
 	AcquireTimeout           *durationpb.Duration                                 `protobuf:"bytes,19,opt,name=acquire_timeout,json=acquireTimeout,proto3" json:"acquire_timeout,omitempty"`
 	PrefetchImages           []string                                             `protobuf:"bytes,20,rep,name=prefetch_images,json=prefetchImages,proto3" json:"prefetch_images,omitempty"`
 	BuildUser                *build_user.BuildUser                                `protobuf:"bytes,21,opt,name=build_user,json=buildUser,proto3" json:"build_user,omitempty"`
+	RootUseBoost             *durationpb.Duration                                 `protobuf:"bytes,22,opt,name=root_use_boost,json=rootUseBoost,proto3" json:"root_use_boost,omitempty"`
+	MaximumRootUseBoost      *durationpb.Duration                                 `protobuf:"bytes,23,opt,name=maximum_root_use_boost,json=maximumRootUseBoost,proto3" json:"maximum_root_use_boost,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -181,11 +183,25 @@ func (x *ApplicationConfiguration) GetBuildUser() *build_user.BuildUser {
 	return nil
 }
 
+func (x *ApplicationConfiguration) GetRootUseBoost() *durationpb.Duration {
+	if x != nil {
+		return x.RootUseBoost
+	}
+	return nil
+}
+
+func (x *ApplicationConfiguration) GetMaximumRootUseBoost() *durationpb.Duration {
+	if x != nil {
+		return x.MaximumRootUseBoost
+	}
+	return nil
+}
+
 var File_github_com_buildbarn_bb_action_router_pkg_proto_configuration_docker_root_fetcher_docker_root_fetcher_proto protoreflect.FileDescriptor
 
 const file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_docker_root_fetcher_docker_root_fetcher_proto_rawDesc = "" +
 	"\n" +
-	"kgithub.com/buildbarn/bb-action-router/pkg/proto/configuration/docker_root_fetcher/docker_root_fetcher.proto\x12+buildbarn.configuration.docker_root_fetcher\x1a\x1egoogle/protobuf/duration.proto\x1aYgithub.com/buildbarn/bb-action-router/pkg/proto/configuration/build_user/build_user.proto\x1a_github.com/buildbarn/bb-action-router/pkg/proto/configuration/registry_auth/registry_auth.proto\x1aKgithub.com/buildbarn/bb-storage/pkg/proto/configuration/global/global.proto\"\xd4\a\n" +
+	"kgithub.com/buildbarn/bb-action-router/pkg/proto/configuration/docker_root_fetcher/docker_root_fetcher.proto\x12+buildbarn.configuration.docker_root_fetcher\x1a\x1egoogle/protobuf/duration.proto\x1aYgithub.com/buildbarn/bb-action-router/pkg/proto/configuration/build_user/build_user.proto\x1a_github.com/buildbarn/bb-action-router/pkg/proto/configuration/registry_auth/registry_auth.proto\x1aKgithub.com/buildbarn/bb-storage/pkg/proto/configuration/global/global.proto\"\xe5\b\n" +
 	"\x18ApplicationConfiguration\x12E\n" +
 	"\x06global\x18\x01 \x01(\v2-.buildbarn.configuration.global.ConfigurationR\x06global\x12\x1f\n" +
 	"\vsocket_path\x18\x02 \x01(\tR\n" +
@@ -204,7 +220,9 @@ const file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_docker_
 	"\x0facquire_timeout\x18\x13 \x01(\v2\x19.google.protobuf.DurationR\x0eacquireTimeout\x12'\n" +
 	"\x0fprefetch_images\x18\x14 \x03(\tR\x0eprefetchImages\x12L\n" +
 	"\n" +
-	"build_user\x18\x15 \x01(\v2-.buildbarn.configuration.build_user.BuildUserR\tbuildUserBSZQgithub.com/buildbarn/bb-action-router/pkg/proto/configuration/docker_root_fetcherb\x06proto3"
+	"build_user\x18\x15 \x01(\v2-.buildbarn.configuration.build_user.BuildUserR\tbuildUser\x12?\n" +
+	"\x0eroot_use_boost\x18\x16 \x01(\v2\x19.google.protobuf.DurationR\frootUseBoost\x12N\n" +
+	"\x16maximum_root_use_boost\x18\x17 \x01(\v2\x19.google.protobuf.DurationR\x13maximumRootUseBoostBSZQgithub.com/buildbarn/bb-action-router/pkg/proto/configuration/docker_root_fetcherb\x06proto3"
 
 var (
 	file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_docker_root_fetcher_docker_root_fetcher_proto_rawDescOnce sync.Once
@@ -232,11 +250,13 @@ var file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_docker_ro
 	3, // 2: buildbarn.configuration.docker_root_fetcher.ApplicationConfiguration.image_pull_timeout:type_name -> google.protobuf.Duration
 	3, // 3: buildbarn.configuration.docker_root_fetcher.ApplicationConfiguration.acquire_timeout:type_name -> google.protobuf.Duration
 	4, // 4: buildbarn.configuration.docker_root_fetcher.ApplicationConfiguration.build_user:type_name -> buildbarn.configuration.build_user.BuildUser
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	3, // 5: buildbarn.configuration.docker_root_fetcher.ApplicationConfiguration.root_use_boost:type_name -> google.protobuf.Duration
+	3, // 6: buildbarn.configuration.docker_root_fetcher.ApplicationConfiguration.maximum_root_use_boost:type_name -> google.protobuf.Duration
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() {

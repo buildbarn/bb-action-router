@@ -316,6 +316,13 @@ func main() {
 		if config.AcquireTimeout != nil {
 			acquireTimeout = config.AcquireTimeout.AsDuration()
 		}
+		var rootUseBoost, maximumRootUseBoost time.Duration
+		if config.RootUseBoost != nil {
+			rootUseBoost = config.RootUseBoost.AsDuration()
+		}
+		if config.MaximumRootUseBoost != nil {
+			maximumRootUseBoost = config.MaximumRootUseBoost.AsDuration()
+		}
 
 		buildUser, err := actionrouter.BuildUserFromProto(config.BuildUser)
 		if err != nil {
@@ -333,10 +340,20 @@ func main() {
 			metrics:          metrics,
 		}
 
-		server := fetcher.NewServer(m, metrics, maxRoots, maxConcurrentFetches, acquireTimeout)
+		server, err := fetcher.NewServer(m, metrics, fetcher.ServerOptions{
+			MaxRoots:             maxRoots,
+			MaxConcurrentFetches: maxConcurrentFetches,
+			AcquireTimeout:       acquireTimeout,
+			PrefetchImages:       config.PrefetchImages,
+			UseBoost:             rootUseBoost,
+			MaxUseBoost:          maximumRootUseBoost,
+		})
+		if err != nil {
+			return util.StatusWrap(err, "Failed to create docker root fetcher")
+		}
 		handler := &connectionHandler{server: server, metrics: metrics}
 
-		go server.PrefetchImages(ctx, config.PrefetchImages, pullTimeout)
+		go server.PrefetchImages(ctx, pullTimeout)
 
 		socketPath := config.SocketPath
 		os.Remove(socketPath)

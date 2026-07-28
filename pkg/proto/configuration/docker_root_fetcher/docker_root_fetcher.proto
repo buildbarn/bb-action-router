@@ -60,11 +60,31 @@ message ApplicationConfiguration {
   // materialization). If unset, no timeout is applied.
   google.protobuf.Duration acquire_timeout = 19;
 
-  // Image references to pre-fetch on startup.
+  // Image references to pre-fetch on startup. Prefetched images are pinned:
+  // they are never evicted. Pinning is by exact image reference, so these have
+  // to be spelled the way the runners spell them.
+  //
+  // Because pinned roots occupy a slot permanently, at most half of
+  // maximum_materialized_roots may be pinned; the fetcher refuses to start
+  // otherwise.
   repeated string prefetch_images = 20;
 
   // Identity injected into each materialized image's /etc/passwd and
   // /etc/group. Its uid/gid must match the --build-user the action router
   // passes to the helper. Defaults to root:0:0.
   buildbarn.configuration.build_user.BuildUser build_user = 21;
+
+  // How far into the future each acquire of a materialized root pushes its
+  // position in the eviction order. Eviction picks the idle root whose position
+  // is furthest in the past, so a root that gets acquired repeatedly outranks a
+  // burst of images that are only ever used once. Larger values make the cache
+  // more resistant to such bursts, at the cost of holding on to stale roots for
+  // longer. Defaults to 5m.
+  google.protobuf.Duration root_use_boost = 22;
+
+  // Upper bound on how far ahead of the present a root's position in the
+  // eviction order may get, i.e. on how much credit a frequently used root can
+  // accumulate. Setting it equal to root_use_boost degenerates the eviction
+  // policy into plain LRU. Defaults to 30m.
+  google.protobuf.Duration maximum_root_use_boost = 23;
 }
