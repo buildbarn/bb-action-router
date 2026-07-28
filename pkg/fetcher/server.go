@@ -168,7 +168,10 @@ func (s *Server) Acquire(ctx context.Context, imageRef string) (string, func(), 
 	}
 
 	root := result.(*MaterializedRoot)
-	s.attachLease(root, token)
+	if !s.attachLease(imageRef, root, token) {
+		s.Metrics.AcquireTotal.Add(s.Metrics.Ctx, 1, metric.WithAttributes(attribute.String("status", "error")))
+		return "", nil, fmt.Errorf("root for %s was evicted before its lease could be attached", imageRef)
+	}
 	s.Metrics.AcquireTotal.Add(s.Metrics.Ctx, 1, metric.WithAttributes(attribute.String("status", "miss")))
 	return root.Path, s.releaseFunc(root, token), nil
 }
@@ -223,11 +226,18 @@ func (s *Server) acquireCachedRoot(imageRef string, token *leaseToken) *Material
 	return nil
 }
 
-func (s *Server) attachLease(root *MaterializedRoot, token *leaseToken) {
+// attachLease leases root to token, provided root is still the cached root for
+// imageRef. It returns false if the root was evicted in the meantime, in which
+// case its directory is gone and its path must not be handed out.
+func (s *Server) attachLease(imageRef string, root *MaterializedRoot, token *leaseToken) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.roots[imageRef] != root {
+		return false
+	}
 	root.leases[token] = struct{}{}
 	s.touchLocked(root)
+	return true
 }
 
 // touchLocked records a use of root by pushing its virtualLastUse UseBoost
