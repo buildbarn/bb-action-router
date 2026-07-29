@@ -48,6 +48,8 @@ func runHelper(helperPath, fetcherSocket, imageRef string, extraArgs []string, c
 		"--build-user=1000:1000",
 	}
 	args = append(args, extraArgs...)
+	// The helper requires its own arguments to be terminated with "--".
+	args = append(args, "--")
 	args = append(args, command...)
 
 	cmd := exec.Command(helperPath, args...)

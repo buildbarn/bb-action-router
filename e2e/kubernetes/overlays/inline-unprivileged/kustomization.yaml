@@ -13,3 +13,12 @@ configMapGenerator:
   - name: bb-router-config
     files:
       - router.jsonnet=action-router.jsonnet
+  - name: bb-chroot-helper-config
+    files:
+      - config.toml=chroot-helper.toml
+
+patches:
+  - path: executor-patch.yaml
+    target:
+      kind: Deployment
+      name: executor

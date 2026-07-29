@@ -8,7 +8,7 @@ import (
 )
 
 // Default build user, used when the configuration omits the build_user
-// message entirely. Matches bb_chroot_helper's --build-user default (the
+// message entirely. Matches bb_chroot_helper's [build-user] default (the
 // in-namespace root user, mapped to the host-side unprivileged user).
 var defaultBuildUser = blobstore.UnixUser{UID: 0, GID: 0, Name: "root"}
 

@@ -36,8 +36,8 @@ spec:
           command: ["/bin/bb_runner", "/var/config/runner.jsonnet"]
           securityContext:
             # Privileged so bb_chroot_helper_privileged (real chroot) works;
-            # the userns bb_chroot_helper doesn't strictly need it, but all
-            # current overlays share this base and leave it on.
+            # the *-unprivileged overlays, which use the userns
+            # bb_chroot_helper, patch this back to false.
             privileged: true
           volumeMounts:
             - { name: config, mountPath: /var/config }

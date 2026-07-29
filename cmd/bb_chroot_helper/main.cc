@@ -31,31 +31,19 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
-#include <set>
 #include <string>
 #include <thread>
 #include <unordered_set>
-#include <vector>
 
+#include "config.h"
 #include "mount.h"
 
 namespace fs = std::filesystem;
 
-// We drop down to a non-root user to run actions. These are the host-side
-// uid/gid the helper setuid()s to before unsharing; the in-namespace id the
-// process then appears as is configurable via --build-user.
-constexpr int kHostUid = 1000;
-constexpr int kHostGid = 1000;
-
-// These are mounted by the container runtime.
-static const std::set<std::string> kKeepList = {"proc", "sys", "dev", "tmp", "runner"};
-static const std::vector<std::string> kEtcFiles = {"resolv.conf", "hostname", "hosts"};
-
 // In inline mode the action's original input root is nested under this
-// directory inside the merged tree (see ActionInputRewriter). We derive the
-// image root (everything above it) by splitting the working directory here,
-// and we never overlay this directory itself onto / (it holds the inputs,
-// which stay in place under the kept build dir).
+// directory inside the merged tree (see the merge_docker_root pipeline
+// operation in pkg/actionrouter/op_merge.go). We derive the image root
+// (everything above it) by splitting the working directory here.
 static constexpr const char* kBazelInputRootDir = "bazel_exec_root";
 
 // Xattr we set on every top-level entry we create in / so that the next run
@@ -67,8 +55,8 @@ static constexpr const char* kOwnedXattr = "user.bb_chroot_helper.owned";
 // The bigger functions are laid out in the order in which they're executed, so the
 // file can be read top-to-bottom.
 
-static bool should_keep_folder(const std::string& name) {
-  return kKeepList.count(name);
+static bool should_keep_folder(const Config& config, const std::string& name) {
+  return config.keep_list.count(name);
 }
 
 [[noreturn]] static void die(const std::string& msg) {
@@ -77,29 +65,6 @@ static bool should_keep_folder(const std::string& name) {
   // cleanup (flushing buffers, atexit). The print above is unbuffered, so it'll
   // show up in stderr either way.
   _exit(1);
-}
-
-static int parse_uid(const std::string& value, const std::string& flag) {
-  try {
-    size_t pos = 0;
-    int parsed = std::stoi(value, &pos);
-    if (pos != value.size() || parsed < 0) {
-      die("invalid value for " + flag + ": " + value);
-    }
-    return parsed;
-  } catch (const std::exception&) {
-    die("invalid value for " + flag + ": " + value);
-  }
-}
-
-// Parse a "UID:GID" pair (e.g. "1000:1000")
-static void parse_build_user(const std::string& value, int* uid, int* gid) {
-  size_t colon = value.find(':');
-  if (colon == std::string::npos) {
-    die("invalid value for --build-user (want UID:GID): " + value);
-  }
-  *uid = parse_uid(value.substr(0, colon), "--build-user uid");
-  *gid = parse_uid(value.substr(colon + 1), "--build-user gid");
 }
 
 [[noreturn]] static void die_errno(const std::string& msg) {
@@ -208,11 +173,11 @@ static std::string acquire_docker_root(const std::string& socket_path, const std
 // We don't have a cleanup when the process exits, so each time we start
 // the helper, we try to remove any toplevel dirs/files that might have been
 // created by the previous action.
-static void clean_stale_files_from_root() {
+static void clean_stale_files_from_root(const Config& config) {
   std::error_code ec;
   for (const auto& entry : fs::directory_iterator("/", ec)) {
     auto name = entry.path().filename().string();
-    if (should_keep_folder(name)) {
+    if (should_keep_folder(config, name)) {
       continue;
     }
 
@@ -294,11 +259,11 @@ static std::string derive_inline_docker_root() {
 // Every entry we create gets tagged with kOwnedXattr so clean_stale_files_from_root
 // on the next run knows what to remove. Entries that already exist (base image)
 // are left untagged and untouched.
-static void prepare_root(const std::string& docker_root) {
+static void prepare_root(const Config& config, const std::string& docker_root) {
   std::error_code ec;
   for (const auto& entry : fs::directory_iterator(docker_root, ec)) {
     auto name = entry.path().filename().string();
-    if (should_keep_folder(name)) {
+    if (should_keep_folder(config, name)) {
       continue;
     }
 
@@ -351,8 +316,9 @@ static void assert_build_user_exists(const std::string& docker_root, int build_u
   std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
   std::string needle = ":x:" + std::to_string(build_uid) + ":" + std::to_string(build_gid) + ":";
   if (content.find(needle) == std::string::npos) {
-    die(passwd_path + " has no uid " + std::to_string(build_uid) +
-        " entry (should be set by the docker root fetcher)");
+    die(passwd_path + " has no uid " + std::to_string(build_uid) + " gid " + std::to_string(build_gid) +
+        " entry (written by the docker root fetcher in sideloaded mode, by merge_docker_root.build_user in inline "
+        "mode)");
   }
 }
 
@@ -371,8 +337,8 @@ static void bind_mount_ro(const std::string& src, const std::string& dst, unsign
 // these inner bind mounts propagate through, so /etc/resolv.conf
 // etc. show the host's versions.
 // This is needed for DNS resolution to work correctly.
-static void bind_mount_etc_files(const std::string& docker_root) {
-  for (const auto& name : kEtcFiles) {
+static void bind_mount_etc_files(const Config& config, const std::string& docker_root) {
+  for (const auto& name : config.etc_files) {
     std::string src = "/etc/" + name;
     std::string dst = docker_root + "/etc/" + name;
     if (!fs::exists(src) || !fs::exists(dst)) {
@@ -384,7 +350,7 @@ static void bind_mount_etc_files(const std::string& docker_root) {
 
 // Overlay docker_root onto / and hide runner top-level dirs that don't
 // appear in docker_root.
-static void overlay_root_dirs(const std::string& docker_root, bool require_deferred) {
+static void overlay_root_dirs(const Config& config, const std::string& docker_root, bool require_deferred) {
   struct Overlay {
     std::string src;
     std::string dst;
@@ -415,7 +381,7 @@ static void overlay_root_dirs(const std::string& docker_root, bool require_defer
   }
   for (const auto& entry : it) {
     auto name = entry.path().filename().string();
-    if (should_keep_folder(name)) {
+    if (should_keep_folder(config, name)) {
       continue;
     }
 
@@ -454,7 +420,7 @@ static void overlay_root_dirs(const std::string& docker_root, bool require_defer
   // If anything is left over attempt to hide it with a tmpfs mount.
   for (const auto& entry : fs::directory_iterator("/", ec)) {
     auto name = entry.path().filename().string();
-    if (should_keep_folder(name)) {
+    if (should_keep_folder(config, name)) {
       continue;
     }
     if (bind_mounts.count(name)) {
@@ -583,43 +549,18 @@ static void install_signal_forwarders() {
 
 // Main entrypoint.
 int main(int argc, char** argv) {
-  std::string docker_image_ref;
-  std::string fetcher_socket = "/var/run/fetcher/fetcher.sock";
-  bool isolate_network = false;
-  // In-namespace uid/gid the action runs as inside of the helper sandbox.
-  int build_uid = 0;
-  int build_gid = 0;
-  int cmd_start = 1;
-
-  for (int i = 1; i < argc; i++) {
-    std::string arg(argv[i]);
-    std::string prefix;
-
-    prefix = "--docker-image-ref=";
-    if (arg.rfind(prefix, 0) == 0) {
-      docker_image_ref = arg.substr(prefix.size());
-    } else if ((prefix = "--fetcher-socket="), arg.rfind(prefix, 0) == 0) {
-      fetcher_socket = arg.substr(prefix.size());
-    } else if ((prefix = "--build-user="), arg.rfind(prefix, 0) == 0) {
-      parse_build_user(arg.substr(prefix.size()), &build_uid, &build_gid);
-    } else if (arg == "--network-isolation") {
-      isolate_network = true;
-    } else if (arg == "--no-network-isolation") {
-      isolate_network = false;
-    } else {
-      break;
-    }
-    cmd_start = i + 1;
+  Config config;
+  int cmd_start = 0;
+  std::string error;
+  if (!parse_command_line(argc, argv, &config, &cmd_start, &error)) {
+    die(error);
+  }
+  if (!validate_config(config, &error)) {
+    die(error);
   }
 
   if (cmd_start >= argc) {
-    fprintf(stderr,
-            "Usage: %s [--docker-image-ref=REF] "
-            "[--fetcher-socket=PATH] "
-            "[--build-user=UID:GID] "
-            "[--network-isolation|--no-network-isolation] "
-            "<command> [args...]\n",
-            argv[0]);
+    fprintf(stderr, "Usage: %s %s\n", argv[0], usage().c_str());
     return 1;
   }
 
@@ -627,36 +568,37 @@ int main(int argc, char** argv) {
     die("Must run as root");
   }
 
-  bool inline_mode = docker_image_ref.empty();
+  bool inline_mode = config.docker_image_ref.empty();
   std::string docker_root;
   if (inline_mode) {
     docker_root = derive_inline_docker_root();
   } else {
     // Keep the socket fd open — the fetcher releases the root when we close
     // it (on exit).
-    docker_root = acquire_docker_root(fetcher_socket, docker_image_ref);
+    docker_root = acquire_docker_root(config.fetcher_socket, config.docker_image_ref);
   }
 
   // (as root) prepare filesystem
-  assert_build_user_exists(docker_root, build_uid, build_gid);
-  clean_stale_files_from_root();
-  prepare_root(docker_root);
+  assert_build_user_exists(docker_root, config.build_uid, config.build_gid);
+  clean_stale_files_from_root(config);
+  prepare_root(config, docker_root);
 
-  // Drop to build user
+  // Drop to the host user, which is what the build user is mapped to inside the
+  // user namespace created below.
   if (setgroups(0, nullptr) != 0) {
     die_errno("setgroups");
   }
-  if (setgid(kHostGid) != 0) {
+  if (setgid(config.host_gid) != 0) {
     die_errno("setgid");
   }
-  if (setuid(kHostUid) != 0) {
+  if (setuid(config.host_uid) != 0) {
     die_errno("setuid");
   }
 
   // Create mount namespace
   // (we need to clone_newuser, otherwise the syscall fails)
   int unshare_flags = CLONE_NEWUSER | CLONE_NEWNS;
-  if (isolate_network) {
+  if (config.isolate_network) {
     unshare_flags |= CLONE_NEWNET;
   }
   if (unshare(unshare_flags) != 0) {
@@ -668,11 +610,11 @@ int main(int argc, char** argv) {
   // Setting the uid/gid maps below won't work without this.
   prctl(PR_SET_DUMPABLE, 1, 0, 0, 0);
 
-  write_file("/proc/self/uid_map", std::to_string(build_uid) + " " + std::to_string(kHostUid) + " 1\n");
+  write_file("/proc/self/uid_map", std::to_string(config.build_uid) + " " + std::to_string(config.host_uid) + " 1\n");
   write_file("/proc/self/setgroups", "deny");
-  write_file("/proc/self/gid_map", std::to_string(build_gid) + " " + std::to_string(kHostGid) + " 1\n");
+  write_file("/proc/self/gid_map", std::to_string(config.build_gid) + " " + std::to_string(config.host_gid) + " 1\n");
 
-  if (isolate_network) {
+  if (config.isolate_network) {
     bring_up_loopback();
   }
 
@@ -681,8 +623,8 @@ int main(int argc, char** argv) {
   }
 
   // Do the fake chroot.
-  bind_mount_etc_files(docker_root);
-  overlay_root_dirs(docker_root, !inline_mode);
+  bind_mount_etc_files(config, docker_root);
+  overlay_root_dirs(config, docker_root, !inline_mode);
 
   run_and_fwd_signals(&argv[cmd_start]);
 }

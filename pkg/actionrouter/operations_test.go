@@ -26,13 +26,16 @@ func prop(name, value string) *remoteexecution.Platform_Property {
 
 const testSha = "sha256:" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
-// The sideloaded EditCommand prepend arguments, kept in sync with the e2e overlay.
+// The sideloaded EditCommand prepend arguments, kept in sync with the e2e
+// overlay. The static settings live in the helper's config file, so only the
+// per-action ones are templated here; the trailing "--" terminates the helper's
+// flags.
 var sideloadedPrepend = []string{
 	"/bin/bb_chroot_helper",
+	"--config=/etc/bb_chroot_helper/config.toml",
 	`--docker-image-ref={{.Platform.Get "ContainerBaseImage" | trimPrefix "docker://"}}`,
-	"--fetcher-socket=/var/fetcher/fetcher.sock",
-	"--build-user=0:0",
 	`{{if and (eq (.Platform.Get "requires-network") "false") (ne (.Platform.Get "requires-external") "true")}}--network-isolation{{else}}--no-network-isolation{{end}}`,
+	"--",
 }
 
 func TestEditCommandSideloadedNetworkIsolated(t *testing.T) {
@@ -50,10 +53,10 @@ func TestEditCommandSideloadedNetworkIsolated(t *testing.T) {
 	require.True(t, s.commandChanged)
 	require.Equal(t, []string{
 		"/bin/bb_chroot_helper",
+		"--config=/etc/bb_chroot_helper/config.toml",
 		"--docker-image-ref=busybox@" + testSha,
-		"--fetcher-socket=/var/fetcher/fetcher.sock",
-		"--build-user=0:0",
 		"--network-isolation",
+		"--",
 		"echo", "hello world", // original argv preserved verbatim, spaces intact
 	}, s.command.Arguments)
 }
