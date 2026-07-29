@@ -1,9 +1,28 @@
 load("@bazel_lib//lib:transitions.bzl", "platform_transition_binary")
-load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 load("@rules_img//img:image.bzl", "image_manifest")
 load("@rules_img//img:layer.bzl", "image_layer")
 load("@rules_img//img:load.bzl", "image_load")
+
+cc_library(
+    name = "config",
+    srcs = ["config.cc"],
+    hdrs = ["config.h"],
+    copts = ["-std=c++17"],
+    deps = ["@tomlplusplus"],
+)
+
+cc_test(
+    name = "config_test",
+    size = "small",
+    srcs = ["config_test.cc"],
+    copts = ["-std=c++17"],
+    deps = [
+        ":config",
+        "@googletest//:gtest_main",
+    ],
+)
 
 cc_library(
     name = "bb_chroot_helper_lib",
@@ -14,6 +33,7 @@ cc_library(
     ],
     copts = ["-std=c++17"],
     target_compatible_with = ["@platforms//os:linux"],
+    deps = [":config"],
 )
 
 cc_binary(

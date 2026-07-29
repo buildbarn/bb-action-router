@@ -1,0 +1,15 @@
+# Static settings for bb_chroot_helper in the runner container, mounted from the
+# bb-chroot-helper-config ConfigMap at /etc/bb_chroot_helper/config.toml. The
+# per-action settings (image ref, network isolation) are still templated onto the
+# helper's command line by the action router; see action-router.jsonnet.
+
+# The fetcher sidecar's socket, on the emptyDir the two containers share.
+fetcher-socket = "/var/fetcher/fetcher.sock"
+
+# The worker's build directory is /runner/build (see base/config/worker.jsonnet),
+# so /runner has to stay visible: it holds the action's working directory.
+keep-dirs = ["runner"]
+
+[build-user]
+uid = 0
+gid = 0

@@ -39,8 +39,9 @@
         ],
       } },
       // Prepend the privileged helper, which performs a real chroot into the
-      // merged input root.
-      { editCommand: { prependArguments: ['/bin/bb_chroot_helper_privileged'] } },
+      // merged input root. The '--' terminates the helper's own arguments, so
+      // the action's command line can't be read as helper arguments.
+      { editCommand: { prependArguments: ['/bin/bb_chroot_helper_privileged', '--'] } },
       // Retarget the worker platform queue.
       { editPlatformProperty: {
         remove: ['ContainerBaseImage', 'requires-network', 'requires-external', 'Flavor', 'Version'],

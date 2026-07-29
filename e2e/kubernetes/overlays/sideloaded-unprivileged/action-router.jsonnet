@@ -28,13 +28,17 @@
       } },
       // Prepend the (unprivileged, userns) helper. It fetches the docker root
       // out-of-band from the fetcher sidecar over the shared /var/fetcher
-      // socket. --build-user=0:0 must match the fetcher's build_user.
+      // socket. The static settings (that socket, the build user) live in the
+      // config file mounted into the runner container from the
+      // bb-chroot-helper-config ConfigMap; only the per-action ones are
+      // templated here. The '--' terminates the helper's own flags, so the
+      // action's command line can't be read as helper flags.
       { editCommand: { prependArguments: [
         '/bin/bb_chroot_helper',
+        '--config=/etc/bb_chroot_helper/config.toml',
         '--docker-image-ref={{.Platform.Get "ContainerBaseImage" | trimPrefix "docker://"}}',
-        '--fetcher-socket=/var/fetcher/fetcher.sock',
-        '--build-user=0:0',
         '{{if and (eq (.Platform.Get "requires-network") "false") (ne (.Platform.Get "requires-external") "true")}}--network-isolation{{else}}--no-network-isolation{{end}}',
+        '--',
       ] } },
       // Retarget the worker platform queue.
       { editPlatformProperty: {

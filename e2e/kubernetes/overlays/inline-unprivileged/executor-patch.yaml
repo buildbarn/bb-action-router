@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: executor
+spec:
+  template:
+    spec:
+      containers:
+        - name: runner
+          # The userns helper doesn't need any privileges, so drop the base's
+          # privileged: true (which is there for the privileged helper).
+          securityContext:
+            privileged: false
+          # bb_chroot_helper reads its static settings from here; the router
+          # passes --config=/etc/bb_chroot_helper/config.toml.
+          volumeMounts:
+            - { name: chroot-helper-config, mountPath: /etc/bb_chroot_helper, readOnly: true }
+      volumes:
+        - name: chroot-helper-config
+          configMap: { name: bb-chroot-helper-config }

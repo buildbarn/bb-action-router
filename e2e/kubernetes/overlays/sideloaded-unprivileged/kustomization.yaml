@@ -14,6 +14,9 @@ configMapGenerator:
     files:
       - router.jsonnet=action-router.jsonnet
       - fetcher.jsonnet=root-fetcher.jsonnet
+  - name: bb-chroot-helper-config
+    files:
+      - config.toml=chroot-helper.toml
 
 patches:
   - path: executor-patch.yaml

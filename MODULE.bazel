@@ -7,6 +7,9 @@ bazel_dep(name = "com_github_buildbarn_bb_storage")
 bazel_dep(name = "com_github_buildbarn_go_xdr")
 bazel_dep(name = "gazelle", version = "0.51.0")
 bazel_dep(name = "googleapis", version = "0.0.0-20260525-ef19b7b7")
+
+bazel_dep(name = "googletest", dev_dependency = True)
+
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "protobuf", version = "35.0")
 bazel_dep(name = "rules_cc", version = "0.2.18")
@@ -43,6 +46,16 @@ git_override(
     remote = "https://github.com/buildbarn/go-xdr.git",
 )
 
+# Every googletest release up to 1.17.0.bcr.2 has a BUILD file that calls
+# cc_library/cc_test without loading them, which Bazel 9 rejects. The loads
+# landed after 1.17.0, so take it from git until there's a release with them.
+# See https://github.com/google/googletest/discussions/4922.
+git_override(
+    module_name = "googletest",
+    commit = "3ff51c3e80f2c2eb105d43ecb9acab9a62e01600",
+    remote = "https://github.com/google/googletest.git",
+)
+
 # Pulled in transitively by com_github_buildbarn_go_xdr; not in the registry.
 git_override(
     module_name = "rules_antlr",
@@ -58,6 +71,31 @@ git_override(
 single_version_override(
     module_name = "toolchains_llvm",
     patches = ["//:patches/toolchains_llvm/non-root.diff"],
+)
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+# Header-only TOML parser, used by bb_chroot_helper to read its config file.
+# Not published to any Bazel registry, so it's pulled in directly.
+http_archive(
+    name = "tomlplusplus",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+cc_library(
+    name = "tomlplusplus",
+    hdrs = ["toml.hpp"],
+    defines = [
+        "TOML_EXCEPTIONS=0",
+        "TOML_ENABLE_FORMATTERS=0",
+    ],
+    includes = ["."],
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "8517f65938a4faae9ccf8ebb36631a38c1cadfb5efa85d9a72e15b9e97d25155",
+    strip_prefix = "tomlplusplus-3.4.0",
+    urls = ["https://github.com/marzer/tomlplusplus/archive/refs/tags/v3.4.0.tar.gz"],
 )
 
 go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
@@ -117,4 +155,7 @@ llvm.toolchain(
     llvm_version = "17.0.6",
 )
 
-register_toolchains("@musl_toolchains_hub//:all")
+register_toolchains(
+    "@musl_toolchains_hub//:all",
+    dev_dependency = True,
+)

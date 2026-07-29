@@ -26,8 +26,15 @@ type userCredentials struct {
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <command> [args...]\n", os.Args[0])
+	// The action router terminates the helper's own arguments with "--" (which
+	// bb_chroot_helper requires, so that the action's command line can't be read
+	// as helper flags). This helper takes no flags, so it just skips the marker.
+	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "--" {
+		args = args[1:]
+	}
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: %s [--] <command> [args...]\n", os.Args[0])
 		os.Exit(1)
 	}
 
@@ -61,7 +68,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := run(chrootDir, workingDir, creds, os.Args[1:]); err != nil {
+	if err := run(chrootDir, workingDir, creds, args); err != nil {
 		fmt.Fprintf(os.Stderr, "bb_chroot_helper: %v\n", err)
 		os.Exit(1)
 	}
