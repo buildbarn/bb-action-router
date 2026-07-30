@@ -45,6 +45,23 @@ type operation interface {
 	apply(s *pipelineState) error
 }
 
+// conditionalOp skips the wrapped operation unless its condition renders truthy.
+type conditionalOp struct {
+	condition *template.Template
+	op        operation
+}
+
+func (o *conditionalOp) apply(s *pipelineState) error {
+	out, err := render(o.condition, s)
+	if err != nil {
+		return util.StatusWrap(err, "Failed to evaluate operation condition")
+	}
+	if !truthy(out) {
+		return nil
+	}
+	return o.op.apply(s)
+}
+
 // Pipeline applies an ordered list of operations to each action.
 type Pipeline struct {
 	cas                     bb_blobstore.BlobAccess
@@ -306,6 +323,13 @@ func NewPipeline(config *pb.ApplicationConfiguration, cas, actionCache bb_blobst
 		op, err := buildOperation(opConfig, cas, actionCache, p.maximumMessageSizeBytes)
 		if err != nil {
 			return nil, util.StatusWrapf(err, "Operation %d", i)
+		}
+		if c := opConfig.GetCondition(); c != "" {
+			condition, err := parseTemplate("operation.condition", c)
+			if err != nil {
+				return nil, util.StatusWrapf(err, "Operation %d", i)
+			}
+			op = &conditionalOp{condition: condition, op: op}
 		}
 		p.operations = append(p.operations, op)
 	}

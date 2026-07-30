@@ -166,6 +166,7 @@ type Operation struct {
 	//	*Operation_EditEnvironment
 	//	*Operation_MergeDockerRoot
 	Kind          isOperation_Kind `protobuf_oneof:"kind"`
+	Condition     string           `protobuf:"bytes,7,opt,name=condition,proto3" json:"condition,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -259,6 +260,13 @@ func (x *Operation) GetMergeDockerRoot() *MergeDockerRoot {
 		}
 	}
 	return nil
+}
+
+func (x *Operation) GetCondition() string {
+	if x != nil {
+		return x.Condition
+	}
+	return ""
 }
 
 type isOperation_Kind interface {
@@ -704,14 +712,15 @@ const file_github_com_buildbarn_bb_action_router_pkg_proto_configuration_bb_dock
 	"\tcondition\x18\x01 \x01(\tR\tcondition\x12Z\n" +
 	"\n" +
 	"operations\x18\x02 \x03(\v2:.buildbarn.configuration.bb_docker_action_router.OperationR\n" +
-	"operations\"\xd6\x05\n" +
+	"operations\"\xf4\x05\n" +
 	"\tOperation\x12\x83\x01\n" +
 	"\x18assert_platform_property\x18\x01 \x01(\v2G.buildbarn.configuration.bb_docker_action_router.AssertPlatformPropertyH\x00R\x16assertPlatformProperty\x12z\n" +
 	"\x15map_platform_property\x18\x02 \x01(\v2D.buildbarn.configuration.bb_docker_action_router.MapPlatformPropertyH\x00R\x13mapPlatformProperty\x12}\n" +
 	"\x16edit_platform_property\x18\x03 \x01(\v2E.buildbarn.configuration.bb_docker_action_router.EditPlatformPropertyH\x00R\x14editPlatformProperty\x12a\n" +
 	"\fedit_command\x18\x04 \x01(\v2<.buildbarn.configuration.bb_docker_action_router.EditCommandH\x00R\veditCommand\x12m\n" +
 	"\x10edit_environment\x18\x05 \x01(\v2@.buildbarn.configuration.bb_docker_action_router.EditEnvironmentH\x00R\x0feditEnvironment\x12n\n" +
-	"\x11merge_docker_root\x18\x06 \x01(\v2@.buildbarn.configuration.bb_docker_action_router.MergeDockerRootH\x00R\x0fmergeDockerRootB\x06\n" +
+	"\x11merge_docker_root\x18\x06 \x01(\v2@.buildbarn.configuration.bb_docker_action_router.MergeDockerRootH\x00R\x0fmergeDockerRoot\x12\x1c\n" +
+	"\tcondition\x18\a \x01(\tR\tconditionB\x06\n" +
 	"\x04kind\"J\n" +
 	"\x16AssertPlatformProperty\x12\x1a\n" +
 	"\bproperty\x18\x01 \x01(\tR\bproperty\x12\x14\n" +

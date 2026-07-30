@@ -201,6 +201,69 @@ func TestNewPipelineRequiresPipeline(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestOperationCondition(t *testing.T) {
+	// The env var is only set for actions that ask for network access.
+	newOp := func() operation {
+		op, err := newEditEnvironmentOp(&pb.EditEnvironment{
+			Set: map[string]string{"HTTPS_PROXY": "http://proxy:3128"},
+		})
+		require.NoError(t, err)
+		condition, err := parseTemplate("operation.condition", `{{ne (.Platform.Get "requires-network") "false"}}`)
+		require.NoError(t, err)
+		return &conditionalOp{condition: condition, op: op}
+	}
+
+	t.Run("condition truthy applies the operation", func(t *testing.T) {
+		s := newState(nil, "", []*remoteexecution.Platform_Property{prop("requires-network", "true")}, nil)
+		require.NoError(t, newOp().apply(s))
+		require.True(t, s.commandChanged)
+		require.Equal(t, []*remoteexecution.Command_EnvironmentVariable{
+			{Name: "HTTPS_PROXY", Value: "http://proxy:3128"},
+		}, s.command.EnvironmentVariables)
+	})
+	t.Run("condition falsy leaves the command untouched", func(t *testing.T) {
+		s := newState(nil, "", []*remoteexecution.Platform_Property{prop("requires-network", "false")}, nil)
+		s.command.EnvironmentVariables = []*remoteexecution.Command_EnvironmentVariable{{Name: "KEEP", Value: "y"}}
+		require.NoError(t, newOp().apply(s))
+		require.False(t, s.commandChanged)
+		require.Equal(t, []*remoteexecution.Command_EnvironmentVariable{
+			{Name: "KEEP", Value: "y"},
+		}, s.command.EnvironmentVariables)
+	})
+}
+
+func TestNewPipelineWrapsConditionalOperations(t *testing.T) {
+	p, err := NewPipeline(&pb.ApplicationConfiguration{
+		Pipeline: &pb.ActionPipeline{
+			Operations: []*pb.Operation{
+				{
+					Condition: `{{ne (.Platform.Get "requires-network") "false"}}`,
+					Kind:      &pb.Operation_EditEnvironment{EditEnvironment: &pb.EditEnvironment{Set: map[string]string{"A": "b"}}},
+				},
+				{Kind: &pb.Operation_EditEnvironment{EditEnvironment: &pb.EditEnvironment{Set: map[string]string{"C": "d"}}}},
+			},
+		},
+	}, nil, nil)
+	require.NoError(t, err)
+	require.IsType(t, &conditionalOp{}, p.operations[0])
+	require.IsType(t, &editEnvironmentOp{}, p.operations[1])
+}
+
+func TestNewPipelineRejectsBadOperationCondition(t *testing.T) {
+	_, err := NewPipeline(&pb.ApplicationConfiguration{
+		Pipeline: &pb.ActionPipeline{
+			Operations: []*pb.Operation{
+				{
+					Condition: "{{.Nope",
+					Kind:      &pb.Operation_EditEnvironment{EditEnvironment: &pb.EditEnvironment{Set: map[string]string{"A": "b"}}},
+				},
+			},
+		},
+	}, nil, nil)
+	require.Error(t, err)
+	require.True(t, strings.Contains(err.Error(), "template"))
+}
+
 func TestTemplateRequestMetadata(t *testing.T) {
 	op, err := newEditEnvironmentOp(&pb.EditEnvironment{Set: map[string]string{
 		"BUILD_INVOCATION_ID": "{{.InvocationID}}",
