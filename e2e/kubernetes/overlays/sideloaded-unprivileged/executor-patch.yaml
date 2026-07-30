@@ -24,6 +24,8 @@ spec:
           args: ["/config-fetcher/fetcher.jsonnet"]
           env:
             - { name: SSL_CERT_DIR, value: /etc/ssl/certs }
+            # Per-action log lines are useful when debugging an e2e failure.
+            - { name: LOG_LEVEL, value: debug }
           volumeMounts:
             - { name: fetcher, mountPath: /var/fetcher }
             - { name: router-config, mountPath: /config-fetcher }

@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -17,6 +17,7 @@ import (
 	"github.com/buildbarn/bb-action-router/pkg/docker"
 	"github.com/buildbarn/bb-action-router/pkg/ephemeralcas"
 	"github.com/buildbarn/bb-action-router/pkg/fetcher"
+	"github.com/buildbarn/bb-action-router/pkg/logging"
 	"github.com/buildbarn/bb-action-router/pkg/proto/configuration/docker_root_fetcher"
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
@@ -52,7 +53,7 @@ func (h *connectionHandler) handleConnection(ctx context.Context, conn net.Conn)
 	reader := bufio.NewReader(conn)
 	line, err := reader.ReadString('\n')
 	if err != nil {
-		log.Printf("Error reading from connection: %v", err)
+		slog.Error("Error reading from connection", "err", err)
 		return
 	}
 	line = strings.TrimSpace(line)
@@ -64,20 +65,20 @@ func (h *connectionHandler) handleConnection(ctx context.Context, conn net.Conn)
 	}
 	imageRef := parts[1]
 
-	log.Printf("ACQUIRE: %s", imageRef)
+	slog.Debug("ACQUIRE", "image", imageRef)
 
 	start := time.Now()
 	path, release, err := h.server.Acquire(ctx, imageRef)
 	h.metrics.AcquireDuration.Record(h.metrics.Ctx, time.Since(start).Seconds())
 
 	if err != nil {
-		log.Printf("ACQUIRE failed for %s: %v", imageRef, err)
+		slog.Error("ACQUIRE failed", "image", imageRef, "err", err)
 		fmt.Fprintf(conn, "ERROR %v\n", err)
 		return
 	}
 	defer release()
 
-	log.Printf("ACQUIRE OK for %s: %s", imageRef, path)
+	slog.Debug("ACQUIRE OK", "image", imageRef, "path", path)
 	fmt.Fprintf(conn, "OK %s\n", path)
 
 	// Block until the client closes the connection. The helper keeps the
@@ -86,7 +87,7 @@ func (h *connectionHandler) handleConnection(ctx context.Context, conn net.Conn)
 	buf := make([]byte, 1)
 	_, _ = conn.Read(buf)
 
-	log.Printf("Connection closed — releasing %s", imageRef)
+	slog.Debug("Connection closed — releasing root", "image", imageRef)
 }
 
 // materializer pulls a docker image into a per-call ephemeral CAS, then
@@ -244,6 +245,9 @@ func (materializer) populateRoot(ctx context.Context, dirPath string, fetchCoord
 
 func main() {
 	program.RunMain(func(ctx context.Context, siblingsGroup, dependenciesGroup program.Group) error {
+		if err := logging.Configure(); err != nil {
+			return util.StatusWrapWithCode(err, codes.InvalidArgument, "Failed to configure logging")
+		}
 		if len(os.Args) != 2 {
 			return status.Error(codes.InvalidArgument, "Usage: docker_root_fetcher config.jsonnet")
 		}
@@ -364,16 +368,16 @@ func main() {
 		defer listener.Close()
 
 		go lifecycleState.MarkReadyAndWait(siblingsGroup)
-		log.Printf("docker_root_fetcher: listening on %s", socketPath)
+		slog.Info("docker_root_fetcher: listening", "socket", socketPath)
 
 		var inFlight atomic.Int64
 		go func() {
 			<-ctx.Done()
-			log.Printf("docker_root_fetcher: shutdown initiated...")
+			slog.Info("docker_root_fetcher: shutdown initiated...")
 			for inFlight.Load() > 0 {
 				time.Sleep(time.Second)
 			}
-			log.Printf("docker_root_fetcher: closing listener")
+			slog.Info("docker_root_fetcher: closing listener")
 			listener.Close()
 		}()
 

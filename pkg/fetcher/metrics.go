@@ -3,7 +3,7 @@ package fetcher
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -38,7 +38,7 @@ type Metrics struct {
 // If endpoints is empty, returns no-op metrics.
 func InitOTLPMetrics(ctx context.Context, appName string, endpoints []string) (*Metrics, func(context.Context) error, error) {
 	if len(endpoints) == 0 {
-		log.Printf("No OTLP collector endpoints configured — metrics disabled")
+		slog.Info("No OTLP collector endpoints configured — metrics disabled")
 		m, _, err := newMetrics(appName)
 		return m, nil, err
 	}
@@ -72,7 +72,7 @@ func InitOTLPMetrics(ctx context.Context, appName string, endpoints []string) (*
 		opts = append(opts, sdkmetric.WithReader(
 			sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(60*time.Second)),
 		))
-		log.Printf("metrics: exporter configured for %s", endpoint)
+		slog.Info("metrics: exporter configured", "endpoint", endpoint)
 	}
 	opts = append(opts, sdkmetric.WithResource(res))
 

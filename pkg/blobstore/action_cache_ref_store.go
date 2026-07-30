@@ -2,7 +2,7 @@ package blobstore
 
 import (
 	"context"
-	"log"
+	"log/slog"
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	bb_blobstore "github.com/buildbarn/bb-storage/pkg/blobstore"
@@ -66,7 +66,7 @@ func (rs *ActionCacheRefStore) Put(ctx context.Context, ref string, rootDir *rem
 	if err != nil {
 		return err
 	}
-	log.Printf("Storing image %s with key %s ..", ref, cacheKeyDigest.String())
+	slog.Debug("Storing image", "image", ref, "key", cacheKeyDigest.String())
 
 	// The ActionCache BlobAccess implementation assumes we're writing ActionResults.
 	actionResult := &remoteexecution.ActionResult{
@@ -92,7 +92,7 @@ func (rs *ActionCacheRefStore) Get(ctx context.Context, ref string, digestFuncti
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("Looking up image %s with key %s ..", ref, cacheKeyDigest.String())
+	slog.Debug("Looking up image", "image", ref, "key", cacheKeyDigest.String())
 
 	buf := rs.actionCache.Get(ctx, cacheKeyDigest)
 	cachedData, err := buf.ToByteSlice(rs.maximumMessageSizeBytes)

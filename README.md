@@ -40,3 +40,8 @@ Both modes can use either helper: `bb_chroot_helper` (unprivileged, user namespa
 helper is not supported in sideloaded mode (its chroot model can't safely reuse the fetcher's
 shared, cached roots). So for inline mode use `bb_docker_action_router` with either helper, and
 for sideloaded mode use `bb_docker_action_router`, `bb_chroot_helper` and `bb_docker_root_fetcher`.
+
+# Logging
+
+The Go services log to stderr through `log/slog`. The minimum level is taken from the
+`LOG_LEVEL` environment variable (`debug`, `info`, `warn` or `error`, defaulting to `info`).

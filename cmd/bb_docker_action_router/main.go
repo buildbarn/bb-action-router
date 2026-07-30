@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	"github.com/buildbarn/bb-action-router/pkg/actionrouter"
+	"github.com/buildbarn/bb-action-router/pkg/logging"
 	bb_docker_action_router "github.com/buildbarn/bb-action-router/pkg/proto/configuration/bb_docker_action_router"
 	"github.com/buildbarn/bb-remote-execution/pkg/proto/remoteactionrouter"
 	"github.com/buildbarn/bb-storage/pkg/auth"
@@ -30,6 +31,9 @@ import (
 
 func main() {
 	program.RunMain(func(ctx context.Context, siblingsGroup, dependenciesGroup program.Group) error {
+		if err := logging.Configure(); err != nil {
+			return util.StatusWrapWithCode(err, codes.InvalidArgument, "Failed to configure logging")
+		}
 		if len(os.Args) != 2 {
 			return status.Error(codes.InvalidArgument, "Usage: bb_docker_action_router bb_docker_action_router_config")
 		}
@@ -74,7 +78,7 @@ func main() {
 			return util.StatusWrap(err, "gRPC server failure")
 		}
 
-		log.Printf("Running...")
+		slog.Info("Running...")
 		lifecycleState.MarkReadyAndWait(siblingsGroup)
 		return nil
 	})
