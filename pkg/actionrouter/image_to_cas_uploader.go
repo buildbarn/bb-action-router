@@ -3,7 +3,7 @@ package actionrouter
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"time"
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
@@ -75,9 +75,9 @@ func (u *ImageToCASUploader) UploadImageToCAS(ctx context.Context, ref string, d
 		}
 	}
 
-	uploadDurationSeconds := time.Since(startTime).Seconds()
-	imagePullDurationSeconds.WithLabelValues(status).Observe(uploadDurationSeconds)
-	log.Printf("ImageToCASUploader %s when uploading image %s in %.2f seconds.\n", status, ref, uploadDurationSeconds)
+	uploadDuration := time.Since(startTime)
+	imagePullDurationSeconds.WithLabelValues(status).Observe(uploadDuration.Seconds())
+	slog.Info("ImageToCASUploader finished uploading image", "image", ref, "status", status, "duration", uploadDuration)
 
 	return digest, err
 }
@@ -89,12 +89,12 @@ func (u *ImageToCASUploader) uploadImageToCASImpl(ctx context.Context, ref strin
 			if retErr == nil {
 				retErr = util.StatusWrap(err, "Failed to flush batched uploads to CAS")
 			} else {
-				log.Printf("casFlusher error during cleanup of %s: %v", ref, err)
+				slog.Error("casFlusher error during cleanup", "image", ref, "err", err)
 			}
 		}
 	}()
 
-	log.Printf("Will upload %s to CAS...", ref)
+	slog.Info("Will upload image to CAS...", "image", ref)
 	img, cancel, err := u.puller.GetImageFromRef(ref)
 	if err != nil {
 		return nil, util.StatusWrap(err, "Failed to pull image")
@@ -115,7 +115,7 @@ func (u *ImageToCASUploader) uploadImageToCASImpl(ctx context.Context, ref strin
 		}
 	}
 	oneMb := float64(totalLayerSize) / (1024 * 1024)
-	log.Printf("Image %s has %d layers. Total layer size %d bytes (%.2f MB)", ref, len(layers), totalLayerSize, oneMb)
+	slog.Info("Image layer summary", "image", ref, "layers", len(layers), "totalLayerSizeBytes", totalLayerSize, "totalLayerSizeMB", oneMb)
 
 	// TODO: would be nice to make this concurrent at some point. Things to consider:
 	// - probably would need to split this across mulitple Pods to get more
@@ -124,7 +124,7 @@ func (u *ImageToCASUploader) uploadImageToCASImpl(ctx context.Context, ref strin
 	extractor := blobstore.NewCASUploadingLayerExtractor(u.batchedCas, digestFunction)
 	visitor := blobstore.NewBuildUserInjectingVisitor(extractor, u.buildUser)
 	for i, layer := range layers {
-		log.Printf("Image %s, processing layer %d...", ref, i+1)
+		slog.Debug("Processing image layer", "image", ref, "layer", i+1, "layers", len(layers))
 
 		if err := docker.ExtractAndVisitLayerContents(ctx, layer, visitor); err != nil {
 			return nil, util.StatusWrap(err, "Failed to extract layer")
@@ -136,7 +136,7 @@ func (u *ImageToCASUploader) uploadImageToCASImpl(ctx context.Context, ref strin
 		return nil, util.StatusWrap(err, "Failed to upload directories")
 	}
 
-	log.Printf("Image %s uploaded to CAS: root digest %s.", ref, rootDigest.String())
+	slog.Info("Image uploaded to CAS", "image", ref, "rootDigest", rootDigest.String())
 
 	return rootDigest, nil
 }

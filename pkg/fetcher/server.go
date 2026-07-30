@@ -3,7 +3,7 @@ package fetcher
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -194,7 +194,7 @@ func (s *Server) releaseFunc(root *MaterializedRoot, token *leaseToken) func() {
 // ServerOptions.PrefetchImages.
 func (s *Server) PrefetchImages(ctx context.Context, perImageTimeout time.Duration) {
 	for _, image := range s.options.PrefetchImages {
-		log.Printf("Prefetching image %s", image)
+		slog.Info("Prefetching image", "image", image)
 		start := time.Now()
 
 		callCtx := ctx
@@ -207,11 +207,11 @@ func (s *Server) PrefetchImages(ctx context.Context, perImageTimeout time.Durati
 			cancel()
 		}
 		if err != nil {
-			log.Printf("Failed to prefetch image %s: %v", image, err)
+			slog.Error("Failed to prefetch image", "image", image, "err", err)
 			continue
 		}
 		release()
-		log.Printf("Prefetched image %s in %.2fs", image, time.Since(start).Seconds())
+		slog.Info("Prefetched image", "image", image, "duration", time.Since(start))
 	}
 }
 
@@ -258,12 +258,12 @@ func (s *Server) fetchRefSingle(ctx context.Context, imageRef string, leaderToke
 	s.materializeSem <- struct{}{}
 	defer func() { <-s.materializeSem }()
 
-	log.Printf("Fetching image %s", imageRef)
+	slog.Info("Fetching image", "image", imageRef)
 	rootPath, err := s.Materializer.Materialize(ctx, imageRef)
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("Materialized %s at %s", imageRef, rootPath)
+	slog.Info("Materialized image", "image", imageRef, "path", rootPath)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -273,7 +273,7 @@ func (s *Server) fetchRefSingle(ctx context.Context, imageRef string, leaderToke
 	// In this scenario we'd have two subsequent fetchRefSingle calls with the same ref.
 	// It's very unlikely but also an easy check to add, so why not.
 	if existing, ok := s.roots[imageRef]; ok {
-		log.Printf("Discarding redundant materialization of %s at %s", imageRef, rootPath)
+		slog.Warn("Discarding redundant materialization", "image", imageRef, "path", rootPath)
 		if existing.Path != rootPath {
 			s.discardLocked(rootPath)
 		}
@@ -326,8 +326,9 @@ func (s *Server) evictOneIdleLocked() bool {
 
 	now := s.options.Now()
 	idleFor := now.Sub(victim.idleSince)
-	log.Printf("Evicting root %s (%s): idle for %s, %s of use credit left",
-		victimRef, victim.Path, idleFor, victim.virtualLastUse.Sub(now))
+	slog.Info("Evicting root",
+		"image", victimRef, "path", victim.Path,
+		"idleFor", idleFor, "useCreditLeft", victim.virtualLastUse.Sub(now))
 	s.Metrics.EvictionIdleDuration.Record(s.Metrics.Ctx, idleFor.Seconds())
 
 	delete(s.roots, victimRef)
@@ -346,7 +347,7 @@ func (s *Server) discardLocked(path string) {
 	dir, name := filepath.Split(path)
 	target := filepath.Join(dir, fmt.Sprintf("%s%d-%s", trashPrefix, s.trashSeq, name))
 	if err := os.Rename(path, target); err != nil {
-		log.Printf("Failed to rename %s to %s: %v; deleting it in place", path, target, err)
+		slog.Warn("Failed to rename discarded root; deleting it in place", "path", path, "target", target, "err", err)
 		target = path
 	}
 
@@ -354,7 +355,7 @@ func (s *Server) discardLocked(path string) {
 	go func() {
 		defer s.reapers.Done()
 		if err := os.RemoveAll(target); err != nil {
-			log.Printf("Failed to remove %s: %v", target, err)
+			slog.Error("Failed to remove discarded root", "path", target, "err", err)
 		}
 	}()
 }

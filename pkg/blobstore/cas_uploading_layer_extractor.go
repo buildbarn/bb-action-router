@@ -3,7 +3,7 @@ package blobstore
 import (
 	"context"
 	"io"
-	"log"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -87,7 +87,7 @@ func (e *CASUploadingLayerExtractor) OnFileSeen(ctx context.Context, path string
 	if err != nil {
 		f.Close()
 		if rmErr := os.Remove(f.Name()); rmErr != nil {
-			log.Printf("failed deleting temporary file %s: %v", f.Name(), rmErr)
+			slog.Error("Failed deleting temporary file", "path", f.Name(), "err", rmErr)
 		}
 		return util.StatusWrap(err, "Failed to compute file digest")
 	}
