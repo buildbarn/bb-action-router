@@ -69,6 +69,11 @@ message Operation {
     EditEnvironment edit_environment = 5;
     MergeDockerRoot merge_docker_root = 6;
   }
+
+  // Template gating this operation, with the same truthiness rules as
+  // ActionPipeline.condition. Empty means always run. Evaluated where the
+  // operation sits in the list, so it observes preceding operations.
+  string condition = 7;
 }
 
 // AssertPlatformProperty rejects the action (InvalidArgument) unless the named
