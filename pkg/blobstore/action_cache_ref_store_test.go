@@ -18,7 +18,7 @@ func TestActionCacheRefStore(t *testing.T) {
 
 		actionCache := mock.NewMockBlobAccess(ctrl)
 
-		store := NewActionCacheRefStore(actionCache, 1024)
+		store := NewActionCacheRefStore(actionCache, 1024, UnixUser{UID: 1000, GID: 1000, Name: "build"})
 
 		df := digest.MustNewFunction("test", remoteexecution.DigestFunction_SHA256)
 

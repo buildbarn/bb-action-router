@@ -19,6 +19,11 @@ type UnixUser struct {
 	Name string
 }
 
+// String returns user details in a format similar to /etc/passwd
+func (u UnixUser) String() string {
+	return fmt.Sprintf("%s:x:%d:%d", u.Name, u.UID, u.GID)
+}
+
 // BuildUserInjectingVisitor wraps a LayerContentsVisitor and ensures
 // /etc/passwd and /etc/group contain an entry for the build user as layers
 // are processed.
