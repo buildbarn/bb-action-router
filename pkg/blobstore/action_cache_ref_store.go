@@ -19,20 +19,23 @@ import (
 type ActionCacheRefStore struct {
 	actionCache             bb_blobstore.BlobAccess
 	maximumMessageSizeBytes int
+	buildUser               UnixUser
 }
 
 // NewActionCacheRefStore creates a new ActionCacheRefStore that stores Docker image ref to digest mappings in the action cache.
 func NewActionCacheRefStore(
 	actionCache bb_blobstore.BlobAccess,
 	maximumMessageSizeBytes int,
+	buildUser UnixUser,
 ) *ActionCacheRefStore {
 	return &ActionCacheRefStore{
 		actionCache:             actionCache,
 		maximumMessageSizeBytes: maximumMessageSizeBytes,
+		buildUser:               buildUser,
 	}
 }
 
-func (ActionCacheRefStore) computeCacheKeyDigest(ref string, digestFunction digest.Function) (digest.Digest, error) {
+func (rs *ActionCacheRefStore) computeCacheKeyDigest(ref string, digestFunction digest.Function) (digest.Digest, error) {
 	cacheKey := &remoteexecution.Action{
 		CommandDigest: &remoteexecution.Digest{
 			// We just need some hash here to make the storage layer think the Action proto is well-formed. We use
@@ -43,6 +46,7 @@ func (ActionCacheRefStore) computeCacheKeyDigest(ref string, digestFunction dige
 		Platform: &remoteexecution.Platform{
 			Properties: []*remoteexecution.Platform_Property{
 				{Name: "container-image", Value: ref},
+				{Name: "build-user", Value: rs.buildUser.String()},
 			},
 		},
 	}

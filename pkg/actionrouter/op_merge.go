@@ -77,7 +77,7 @@ func newMergeDockerRootOp(config *pb.MergeDockerRoot, cas, actionCache bb_blobst
 		cas:             cas,
 		maxMessageSize:  maxMessageSize,
 		uploader:        NewImageToCasUploader(puller, cas, buildUser),
-		refStore:        blobstore.NewActionCacheRefStore(actionCache, maxMessageSize),
+		refStore:        blobstore.NewActionCacheRefStore(actionCache, maxMessageSize, buildUser),
 		dirTreeVerifier: blobstore.NewDirTreeVerifier(cas, maxMessageSize),
 		cache:           cache.New(3*time.Hour, 1*time.Minute),
 	}, nil
