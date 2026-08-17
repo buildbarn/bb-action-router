@@ -1,3 +1,5 @@
+run --workspace_status_command="bash tools/workspace-status.sh"
+
 common --enable_platform_specific_config
 
 build --cxxopt=-std=c++17
