@@ -84,7 +84,7 @@
     },
   },
 
-  getWorkflows(setupSteps=[], extraSteps=[]): {
+  getWorkflows(setupSteps=[], extraSteps=[], containers=[]): {
     'main.yaml': {
       name: 'main',
       on: { push: { branches: ['main'] } },
@@ -95,5 +95,43 @@
       on: { pull_request: { branches: ['main'] } },
       jobs: getJobs(setupSteps, extraSteps),
     },
-  },
+  } + if std.length(containers) > 0 then {
+    'publish-docker.yaml': {
+      name: 'Build and publish docker images',
+      on: {
+        push: { branches: ['main'] },
+        workflow_dispatch: null,
+      },
+      permissions: {
+        contents: 'read',
+        packages: 'write',
+      },
+      jobs: {
+        publish: {
+          name: 'Build and publish docker images',
+          'runs-on': 'ubuntu-24.04',
+          steps: [
+            {
+              name: 'Check out source code',
+              uses: 'actions/checkout@v4',
+            },
+            {
+              name: 'Install Docker credentials',
+              run: 'echo "${GITHUB_TOKEN}" | docker login ghcr.io -u $ --password-stdin',
+              env: {
+                GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}',
+              },
+            },
+            bazelInstallStep('linux'),
+          ] + [
+            {
+              name: 'Build and push %s' % container,
+              run: 'bazel run --stamp //cmd/%s:%s_container_push' % [container, container],
+            }
+            for container in containers
+          ],
+        },
+      },
+    },
+  } else {},
 }

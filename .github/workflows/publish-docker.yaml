@@ -1,0 +1,47 @@
+{
+   "jobs": {
+      "publish": {
+         "name": "Build and publish docker images",
+         "runs-on": "ubuntu-24.04",
+         "steps": [
+            {
+               "name": "Check out source code",
+               "uses": "actions/checkout@v4"
+            },
+            {
+               "env": {
+                  "GITHUB_TOKEN": "${{ secrets.GITHUB_TOKEN }}"
+               },
+               "name": "Install Docker credentials",
+               "run": "echo \"${GITHUB_TOKEN}\" | docker login ghcr.io -u $ --password-stdin"
+            },
+            {
+               "name": "Installing Bazel",
+               "run": "v=$(cat .bazelversion) && curl -L https://github.com/bazelbuild/bazel/releases/download/${v}/bazel-${v}-linux-x86_64 > ~/bazel && chmod +x ~/bazel && echo ~ >> ${GITHUB_PATH}",
+               "shell": "bash"
+            },
+            {
+               "name": "Build and push bb_docker_action_router",
+               "run": "bazel run --stamp //cmd/bb_docker_action_router:bb_docker_action_router_container_push"
+            },
+            {
+               "name": "Build and push bb_docker_root_fetcher",
+               "run": "bazel run --stamp //cmd/bb_docker_root_fetcher:bb_docker_root_fetcher_container_push"
+            }
+         ]
+      }
+   },
+   "name": "Build and publish docker images",
+   "on": {
+      "push": {
+         "branches": [
+            "main"
+         ]
+      },
+      "workflow_dispatch": null
+   },
+   "permissions": {
+      "contents": "read",
+      "packages": "write"
+   }
+}
