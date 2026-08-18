@@ -21,6 +21,10 @@
                "shell": "bash"
             },
             {
+               "name": "Build and push bb_chroot_helper_installer",
+               "run": "bazel run --stamp //cmd/bb_chroot_helper_installer:bb_chroot_helper_installer_container_push"
+            },
+            {
                "name": "Build and push bb_docker_action_router",
                "run": "bazel run --stamp //cmd/bb_docker_action_router:bb_docker_action_router_container_push"
             },
