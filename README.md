@@ -41,6 +41,12 @@ helper is not supported in sideloaded mode (its chroot model can't safely reuse 
 shared, cached roots). So for inline mode use `bb_docker_action_router` with either helper, and
 for sideloaded mode use `bb_docker_action_router`, `bb_chroot_helper` and `bb_docker_root_fetcher`.
 
+The `bb-chroot-helper-installer` container installs both helper executables into `/bb` by default,
+or into a directory passed as its sole argument. It is intended to run as an init container against
+a shared volume, alongside `bb-runner-installer`. The runner mounts that volume read-only and the
+action router is configured to invoke either `/bb/bb_chroot_helper` or
+`/bb/bb_chroot_helper_privileged`.
+
 # Logging
 
 The Go services log to stderr through `log/slog`. The minimum level is taken from the

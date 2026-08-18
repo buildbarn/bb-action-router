@@ -1,0 +1,88 @@
+load("@bazel_lib//lib:copy_file.bzl", "copy_file")
+load("@bazel_lib//lib:transitions.bzl", "platform_transition_filegroup")
+load("@com_github_buildbarn_bb_storage//tools:container.bzl", "container_push_official")
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_img//img:image.bzl", "image_index", "image_manifest")
+load("@rules_img//img:layer.bzl", "image_layer")
+load("@rules_img//img:load.bzl", "image_load")
+
+platform_transition_filegroup(
+    name = "bb_chroot_helper_linux_musl_file",
+    srcs = ["//cmd/bb_chroot_helper"],
+    target_platform = "//build/platforms:linux_x86_64_musl",
+)
+
+platform_transition_filegroup(
+    name = "bb_chroot_helper_linux_aarch64_musl_file",
+    srcs = ["//cmd/bb_chroot_helper"],
+    target_platform = "//build/platforms:linux_aarch64_musl",
+)
+
+copy_file(
+    name = "bb_chroot_helper_copy",
+    src = select({
+        "@platforms//cpu:arm64": ":bb_chroot_helper_linux_aarch64_musl_file",
+        "@platforms//cpu:x86_64": ":bb_chroot_helper_linux_musl_file",
+    }),
+    out = "bb_chroot_helper",
+)
+
+copy_file(
+    name = "bb_chroot_helper_privileged_copy",
+    src = "//cmd/bb_chroot_helper_privileged",
+    out = "bb_chroot_helper_privileged",
+)
+
+go_library(
+    name = "bb_chroot_helper_installer_lib",
+    srcs = ["main.go"],
+    embedsrcs = [
+        "bb_chroot_helper",
+        "bb_chroot_helper_privileged",
+    ],
+    importpath = "github.com/buildbarn/bb-action-router/cmd/bb_chroot_helper_installer",
+    visibility = ["//visibility:private"],
+)
+
+go_binary(
+    name = "bb_chroot_helper_installer",
+    embed = [":bb_chroot_helper_installer_lib"],
+    pure = "on",
+    visibility = ["//visibility:public"],
+)
+
+image_layer(
+    name = "_bb_chroot_helper_installer_container.tar",
+    srcs = {"app/bb_chroot_helper_installer": ":bb_chroot_helper_installer"},
+    tags = ["manual"],
+)
+
+image_manifest(
+    name = "_bb_chroot_helper_installer_container.image",
+    entrypoint = ["/app/bb_chroot_helper_installer"],
+    layers = [":_bb_chroot_helper_installer_container.tar"],
+    tags = ["manual"],
+)
+
+image_index(
+    name = "bb_chroot_helper_installer_container",
+    manifests = [":_bb_chroot_helper_installer_container.image"],
+    platforms = [
+        "@com_github_buildbarn_bb_storage//tools/platforms:linux_amd64",
+        "@com_github_buildbarn_bb_storage//tools/platforms:linux_arm64",
+    ],
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+
+image_load(
+    name = "bb_chroot_helper_installer_container_load",
+    image = ":_bb_chroot_helper_installer_container.image",
+    tag = "bb_chroot_helper_installer:dev",
+)
+
+container_push_official(
+    name = "bb_chroot_helper_installer_container_push",
+    component = "bb-chroot-helper-installer",
+    image = ":bb_chroot_helper_installer_container",
+)
