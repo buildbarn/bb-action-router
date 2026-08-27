@@ -45,6 +45,20 @@ type connectionHandler struct {
 	metrics *fetcher.Metrics
 }
 
+func listenUnixSocket(socketPath string) (net.Listener, error) {
+	_ = os.Remove(socketPath)
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return nil, util.StatusWrapf(err, "Failed to listen on %s", socketPath)
+	}
+	if err := os.Chmod(socketPath, 0o660); err != nil {
+		listener.Close()
+		_ = os.Remove(socketPath)
+		return nil, util.StatusWrapf(err, "Failed to set permissions on %s", socketPath)
+	}
+	return listener, nil
+}
+
 func (h *connectionHandler) handleConnection(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
@@ -360,10 +374,9 @@ func main() {
 		go server.PrefetchImages(ctx, pullTimeout)
 
 		socketPath := config.SocketPath
-		os.Remove(socketPath)
-		listener, err := net.Listen("unix", socketPath)
+		listener, err := listenUnixSocket(socketPath)
 		if err != nil {
-			return util.StatusWrapf(err, "Failed to listen on %s", socketPath)
+			return err
 		}
 		defer listener.Close()
 

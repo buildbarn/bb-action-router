@@ -1,5 +1,5 @@
 load("@com_github_buildbarn_bb_storage//tools:container.bzl", "container_push_official", "multiarch_go_image")
-load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 load("@rules_img//img:image.bzl", "image_from_binary")
 load("@rules_img//img:load.bzl", "image_load")
 load("@rules_img//img:push.bzl", "image_push")
@@ -41,6 +41,12 @@ go_binary(
     embed = [":bb_docker_root_fetcher_lib"],
     pure = "on",
     visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "bb_docker_root_fetcher_test",
+    srcs = ["main_test.go"],
+    embed = [":bb_docker_root_fetcher_lib"],
 )
 
 multiarch_go_image(
