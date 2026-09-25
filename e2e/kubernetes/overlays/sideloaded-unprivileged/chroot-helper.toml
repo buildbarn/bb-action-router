@@ -1,3 +1,5 @@
+root-mode = "tmpfs"
+
 # Static settings for bb_chroot_helper in the runner container, mounted from the
 # bb-chroot-helper-config ConfigMap at /etc/bb_chroot_helper/config.toml. The
 # per-action settings (image ref, network isolation) are still templated onto the

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <string_view>
@@ -15,6 +16,8 @@ namespace {
 // in each: the config file key is the name verbatim, the flag is "--" plus the
 // name. TOML bare keys allow dashes, so nothing has to be translated.
 constexpr std::string_view kFetcherSocket = "fetcher-socket";
+constexpr std::string_view kRootMode = "root-mode";
+constexpr std::string_view kStagingRoot = "staging-root";
 constexpr std::string_view kNetworkIsolation = "network-isolation";
 constexpr std::string_view kBuildUser = "build-user";
 constexpr std::string_view kHostUser = "host-user";
@@ -39,7 +42,7 @@ constexpr std::string_view kEndOfFlags = "--";
 // Every key the config file may contain. A key that isn't listed here is
 // rejected, so adding a setting above means adding it to one of these too.
 constexpr std::string_view kTopLevelKeys[] = {
-    kFetcherSocket, kNetworkIsolation, kKeepDirs, kEtcFiles, kBuildUser, kHostUser,
+    kFetcherSocket, kRootMode, kStagingRoot, kNetworkIsolation, kKeepDirs, kEtcFiles, kBuildUser, kHostUser,
 };
 constexpr std::string_view kUserTableKeys[] = {kUid, kGid};
 
@@ -228,6 +231,16 @@ constexpr Flag kFlags[] = {
        config->fetcher_socket = value;
        return true;
      }},
+    {kRootMode, "MODE",
+     [](const std::string& value, Config* config, std::string*) {
+       config->root_mode = value;
+       return true;
+     }},
+    {kStagingRoot, "PATH",
+     [](const std::string& value, Config* config, std::string*) {
+       config->staging_root = value;
+       return true;
+     }},
     {kBuildUser, "UID:GID",
      [](const std::string& value, Config* config, std::string* error) {
        return parse_user_flag(kBuildUser, value, &config->build_uid, &config->build_gid, error);
@@ -308,6 +321,8 @@ bool parse_config_file(const std::string& path, Config* config, std::string* err
 
   std::vector<std::string> keep_dirs;
   if (!get_string(root, kFetcherSocket, &config->fetcher_socket, path, error) ||
+      !get_string(root, kRootMode, &config->root_mode, path, error) ||
+      !get_string(root, kStagingRoot, &config->staging_root, path, error) ||
       !get_bool(root, kNetworkIsolation, &config->isolate_network, path, error) ||
       !get_user_table(root, kBuildUser, &config->build_uid, &config->build_gid, path, error) ||
       !get_user_table(root, kHostUser, &config->host_uid, &config->host_gid, path, error) ||
@@ -367,6 +382,16 @@ bool parse_command_line(int argc, char** argv, Config* config, int* command_star
 }
 
 bool validate_config(const Config& config, std::string* error) {
+  if (config.root_mode != "overlay" && config.root_mode != "tmpfs") {
+    *error = std::string(kRootMode) + " must be overlay or tmpfs";
+    return false;
+  }
+  std::filesystem::path staging_root(config.staging_root);
+  if (!staging_root.is_absolute() || staging_root.parent_path() == "/" || staging_root.filename().empty() ||
+      config.staging_root != staging_root.lexically_normal().string()) {
+    *error = std::string(kStagingRoot) + " must be a normalized absolute path below a top-level directory";
+    return false;
+  }
   // The helper drops privileges to the host user before unsharing, so id 0 there
   // would make setuid()/setgid() a no-op. Id 0 is fine for the build user, which
   // is only the in-namespace mapping.

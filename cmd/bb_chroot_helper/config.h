@@ -22,6 +22,13 @@ struct Config {
   // Path of the bb_docker_root_fetcher socket. Unused in inline mode.
   std::string fetcher_socket = "/var/run/fetcher/fetcher.sock";
 
+  // overlay reuses the staging directory for sequential actions; tmpfs
+  // gives each action a private root and supports concurrent actions.
+  std::string root_mode = "overlay";
+
+  // Staging directory for the action root; must be dedicated to the helper.
+  std::string staging_root = "/var/action_root";
+
   // Whether to unshare the network namespace. This is per-action, but the
   // config file can set the default for actions that don't specify it.
   bool isolate_network = false;
@@ -36,10 +43,9 @@ struct Config {
   int host_uid = 1000;
   int host_gid = 1000;
 
-  // Top-level entries of / that are left alone: not removed as stale, not used
-  // as an overlay mount point and not hidden from the action. The built-in
-  // entries are the ones the container runtime mounts; keep-dirs in the config
-  // file are added to them.
+  // Top-level directories of / that are bind-mounted into the action's root.
+  // The built-in entries are the ones the container runtime mounts; keep-dirs
+  // in the config file are added to them.
   //
   // A deployment has to add the top-level directory that holds the worker's
   // build directory (the action's working directory lives in there), since
