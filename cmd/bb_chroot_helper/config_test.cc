@@ -62,6 +62,8 @@ TEST(Config, Defaults) {
   EXPECT_EQ(r.command_start, 2);
   EXPECT_EQ(r.config.docker_image_ref, "");
   EXPECT_EQ(r.config.fetcher_socket, "/var/run/fetcher/fetcher.sock");
+  EXPECT_EQ(r.config.staging_root, "/var/action_root");
+  EXPECT_EQ(r.config.root_mode, "overlay");
   EXPECT_FALSE(r.config.isolate_network);
   EXPECT_EQ(r.config.build_uid, 0);
   EXPECT_EQ(r.config.build_gid, 0);
@@ -145,6 +147,8 @@ TEST(Config, ConfigFile) {
   ParseResult r = ParseFile(R"(
 # A comment.
 fetcher-socket = "/var/fetcher/fetcher.sock"
+root-mode = "tmpfs"
+staging-root = "/tmp/bb_chroot_helper"
 network-isolation = true
 keep-dirs = ["nix", "toolchains"]
 etc-files = ["resolv.conf"]
@@ -159,6 +163,8 @@ gid = 65534
 )");
   ASSERT_TRUE(r.ok) << r.error;
   EXPECT_EQ(r.config.fetcher_socket, "/var/fetcher/fetcher.sock");
+  EXPECT_EQ(r.config.staging_root, "/tmp/bb_chroot_helper");
+  EXPECT_EQ(r.config.root_mode, "tmpfs");
   EXPECT_TRUE(r.config.isolate_network);
   EXPECT_EQ(r.config.build_uid, 1000);
   EXPECT_EQ(r.config.build_gid, 1001);
@@ -191,18 +197,23 @@ TEST(Config, EmptyArrays) {
 TEST(Config, FlagsOverrideConfigFile) {
   std::string path = WriteConfig(R"(
 fetcher-socket = "/from-config.sock"
+root-mode = "tmpfs"
+staging-root = "/var/from-config"
 network-isolation = true
 
 [build-user]
 uid = 1000
 gid = 1000
 )");
-  ParseResult r = Parse({"--build-user=5:6", "--config=" + path, "--fetcher-socket=/from-flag.sock",
-                         "--no-network-isolation", "--", "true"});
+  ParseResult r =
+      Parse({"--build-user=5:6", "--config=" + path, "--fetcher-socket=/from-flag.sock",
+             "--staging-root=/tmp/from-flag", "--root-mode=overlay", "--no-network-isolation", "--", "true"});
   ASSERT_TRUE(r.ok) << r.error;
   EXPECT_EQ(r.config.build_uid, 5);
   EXPECT_EQ(r.config.build_gid, 6);
   EXPECT_EQ(r.config.fetcher_socket, "/from-flag.sock");
+  EXPECT_EQ(r.config.staging_root, "/tmp/from-flag");
+  EXPECT_EQ(r.config.root_mode, "overlay");
   EXPECT_FALSE(r.config.isolate_network);
 
   // Settings the flags don't mention still come from the file.
@@ -210,6 +221,8 @@ gid = 1000
   ASSERT_TRUE(r.ok) << r.error;
   EXPECT_EQ(r.config.build_uid, 1000);
   EXPECT_EQ(r.config.fetcher_socket, "/from-config.sock");
+  EXPECT_EQ(r.config.staging_root, "/var/from-config");
+  EXPECT_EQ(r.config.root_mode, "tmpfs");
   EXPECT_TRUE(r.config.isolate_network);
 }
 
@@ -235,7 +248,9 @@ INSTANTIATE_TEST_SUITE_P(
         // The image ref is per-action and gets a pointed error of its own.
         ConfigFileErrorCase{"docker-image-ref = \"busybox\"\n", "pass --docker-image-ref instead"},
         // Type errors.
+        ConfigFileErrorCase{"root-mode = true\n", "root-mode must be a string"},
         ConfigFileErrorCase{"fetcher-socket = 7\n", "fetcher-socket must be a string"},
+        ConfigFileErrorCase{"staging-root = 7\n", "staging-root must be a string"},
         ConfigFileErrorCase{"network-isolation = \"true\"\n", "network-isolation must be true or false"},
         ConfigFileErrorCase{"keep-dirs = \"nix\"\n", "keep-dirs must be an array of strings"},
         ConfigFileErrorCase{"etc-files = [1]\n", "etc-files must be an array of strings"},
@@ -305,12 +320,36 @@ TEST(Config, HostUserRootIsRejected) {
   EXPECT_TRUE(validate_config(r.config, &error)) << error;
 }
 
+TEST(Config, RootModeValidation) {
+  for (const char* mode : {"overlay", "tmpfs", "", "unknown"}) {
+    ParseResult r = Parse({std::string("--root-mode=") + mode, "--", "true"});
+    ASSERT_TRUE(r.ok) << r.error;
+    std::string error;
+    bool expected = std::string(mode) == "overlay" || std::string(mode) == "tmpfs";
+    EXPECT_EQ(validate_config(r.config, &error), expected) << mode;
+    if (!expected) {
+      EXPECT_THAT(error, HasSubstr("root-mode must be overlay or tmpfs"));
+    }
+  }
+}
+
+TEST(Config, InvalidStagingRootIsRejected) {
+  for (const char* staging_root : {"relative/path", "/stage", "/var/../stage", "/var//stage"}) {
+    ParseResult r = Parse({std::string("--staging-root=") + staging_root, "--", "true"});
+    ASSERT_TRUE(r.ok) << r.error;
+    std::string error;
+    EXPECT_FALSE(validate_config(r.config, &error)) << staging_root;
+    EXPECT_THAT(error, HasSubstr("staging-root must be a normalized absolute path below a top-level directory"));
+  }
+}
+
 // The usage message is generated from the flag table, so check that every flag
 // still shows up in it.
 TEST(Config, UsageMentionsEveryFlag) {
   std::string text = usage();
-  for (const char* flag : {"--config=PATH", "--docker-image-ref=REF", "--fetcher-socket=PATH", "--build-user=UID:GID",
-                           "--network-isolation]", "--no-network-isolation]"}) {
+  for (const char* flag :
+       {"--config=PATH", "--docker-image-ref=REF", "--fetcher-socket=PATH", "--staging-root=PATH", "--root-mode=MODE",
+        "--build-user=UID:GID", "--network-isolation]", "--no-network-isolation]"}) {
     EXPECT_THAT(text, HasSubstr(flag));
   }
   EXPECT_THAT(text, HasSubstr("-- <command> [args...]"));

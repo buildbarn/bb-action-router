@@ -3,12 +3,14 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -40,6 +42,7 @@ func checkOutput(desc, expected, actual string) {
 
 func runHelper(helperPath, fetcherSocket, imageRef string, extraArgs []string, command ...string) (string, error) {
 	args := []string{
+		"--root-mode=tmpfs",
 		"--docker-image-ref=" + imageRef,
 		"--fetcher-socket=" + fetcherSocket,
 		// Exercise the configurable path with a non-default build user; the
@@ -57,9 +60,9 @@ func runHelper(helperPath, fetcherSocket, imageRef string, extraArgs []string, c
 	return strings.TrimSpace(string(out)), err
 }
 
-func startMockFetcher(socketPath, dockerRoot string) (func(), error) {
+func startMockFetcher(socketPath, dockerRoot, otherDockerRoot string) (func(), error) {
 	self, _ := os.Executable()
-	cmd := exec.Command(self, "--mock-fetcher", socketPath, dockerRoot)
+	cmd := exec.Command(self, "--mock-fetcher", socketPath, dockerRoot, otherDockerRoot)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return nil, err
@@ -87,7 +90,7 @@ func setupDockerRoot(root string) error {
 		}
 	}
 	symlinks := map[string]string{
-		"lib":   "usr/lib",
+		"lib":   "/usr/lib",
 		"lib64": "usr/lib64",
 		"sbin":  "usr/sbin",
 	}
@@ -130,13 +133,30 @@ func runTests() {
 	helperPath := "/bin/bb_chroot_helper"
 	testDir := "/var/chroot_integration_test"
 	dockerRoot := filepath.Join(testDir, "docker_root")
+	otherDockerRoot := filepath.Join(testDir, "other_docker_root")
 	socketPath := filepath.Join(testDir, "fetcher.sock")
 
 	os.MkdirAll(testDir, 0o755)
+	os.MkdirAll("/tmp", 0o1777)
 	defer os.RemoveAll(testDir)
+	if err := os.Symlink("/tmp", filepath.Join(testDir, "tmp_link")); err != nil {
+		die(fmt.Sprintf("create staging root symlink: %v", err))
+	}
 
 	if err := setupDockerRoot(dockerRoot); err != nil {
 		die(fmt.Sprintf("setup docker root: %v", err))
+	}
+	if err := setupDockerRoot(otherDockerRoot); err != nil {
+		die(fmt.Sprintf("setup other docker root: %v", err))
+	}
+	if err := os.Remove(filepath.Join(otherDockerRoot, "sbin")); err != nil {
+		die(fmt.Sprintf("remove other image sbin: %v", err))
+	}
+	if err := os.WriteFile(filepath.Join(otherDockerRoot, "sbin"), []byte("other-image-file"), 0o644); err != nil {
+		die(fmt.Sprintf("create other image sbin: %v", err))
+	}
+	if err := os.WriteFile(filepath.Join(otherDockerRoot, "etc/image_marker"), []byte("other-image"), 0o644); err != nil {
+		die(fmt.Sprintf("create other image marker: %v", err))
 	}
 
 	// Write known host /etc files.
@@ -145,19 +165,25 @@ func runTests() {
 	os.WriteFile("/etc/hostname", []byte("test-host\n"), 0o644)
 	os.WriteFile("/etc/hosts", []byte("127.0.0.1 localhost\n"), 0o644)
 
-	// Copy ourselves into the docker root so we're available after overlay to run probes.
+	// Copy ourselves into the docker roots so we're available after chroot to run probes.
 	self, _ := os.Executable()
-	selfDst := filepath.Join(dockerRoot, "bin/integration_test")
-	data, _ := os.ReadFile(self)
-	os.WriteFile(selfDst, data, 0o755)
+	data, err := os.ReadFile(self)
+	if err != nil {
+		die(fmt.Sprintf("read test executable: %v", err))
+	}
+	for _, root := range []string{dockerRoot, otherDockerRoot} {
+		if err := os.WriteFile(filepath.Join(root, "bin/integration_test"), data, 0o755); err != nil {
+			die(fmt.Sprintf("copy test executable to %s: %v", root, err))
+		}
+	}
 
-	cleanupFetcher, err := startMockFetcher(socketPath, dockerRoot)
+	cleanupFetcher, err := startMockFetcher(socketPath, dockerRoot, otherDockerRoot)
 	if err != nil {
 		die(fmt.Sprintf("start mock fetcher: %v", err))
 	}
 	defer cleanupFetcher()
 
-	fmt.Println("\n=== Basic overlay (image marker) ===")
+	fmt.Println("\n=== Image root (image marker) ===")
 	out, _ := runHelper(helperPath, socketPath, "test-image",
 		[]string{"--no-network-isolation"},
 		"/bin/integration_test", "--probe=read-file", "/etc/image_marker")
@@ -185,7 +211,7 @@ func runTests() {
 	out, _ = runHelper(helperPath, socketPath, "test-image",
 		[]string{"--no-network-isolation"},
 		"/bin/integration_test", "--probe=mkdir", "/foo")
-	checkOutput("Cannot write to /foo (unprivileged)", "error: mkdir /foo: permission denied", out)
+	checkOutput("Cannot write to /foo (read-only root)", "error: mkdir /foo: read-only file system", out)
 
 	fmt.Println("\n=== Test 5: HOME=/tmp ===")
 	out, _ = runHelper(helperPath, socketPath, "test-image",
@@ -199,13 +225,13 @@ func runTests() {
 		"/bin/integration_test", "--probe=read-file", "/top_level_file")
 	checkOutput("Top-level file visible", "top-level-file-content", out)
 
-	fmt.Println("\n=== Stale host dirs hidden ===")
+	fmt.Println("\n=== Host dirs hidden ===")
 	os.MkdirAll("/stale_test_dir", 0o755)
 	os.WriteFile("/stale_test_dir/marker", []byte("should-be-hidden"), 0o644)
 	out, _ = runHelper(helperPath, socketPath, "test-image",
 		[]string{"--no-network-isolation"},
 		"/bin/integration_test", "--probe=read-file", "/stale_test_dir/marker")
-	check("Stale host dir hidden", strings.Contains(out, "error") || out == "")
+	check("Host dir hidden", strings.Contains(out, "error") || out == "")
 	os.RemoveAll("/stale_test_dir")
 
 	fmt.Println("\n=== Network isolation ===")
@@ -227,32 +253,157 @@ func runTests() {
 	check(fmt.Sprintf("Network isolated (no external interfaces, got: %s)",
 		strings.ReplaceAll(ifaces, "\n", ", ")), !hasEth)
 
-	fmt.Println("\n=== Symlinks resolved and bind-mounted ===")
-	// docker_root has /lib -> usr/lib. We can't replace the runner's
-	// read-only /lib with a symlink, so the helper bind-mounts
-	// docker_root/usr/lib onto /lib. Verify by reading a marker that only
-	// exists under usr/lib.
+	fmt.Println("\n=== Top-level symlinks preserved ===")
+	// docker_root has /lib -> /usr/lib.
+	out, _ = runHelper(helperPath, socketPath, "test-image",
+		[]string{"--no-network-isolation"},
+		"/bin/integration_test", "--probe=readlink", "/lib")
+	checkOutput("Top-level symlink preserved", "/usr/lib", out)
+	// Verify that the symlink resolves within the action root.
 	out, _ = runHelper(helperPath, socketPath, "test-image",
 		[]string{"--no-network-isolation"},
 		"/bin/integration_test", "--probe=read-file", "/lib/lib_marker")
-	checkOutput("Symlink target bind-mounted at /lib", "from-usr-lib", out)
+	checkOutput("Top-level symlink resolves", "from-usr-lib", out)
 
-	fmt.Println("\n=== Test 10: Symlink escaping docker_root is rejected ===")
-	// A top-level symlink whose target resolves outside docker_root must
-	// be refused by resolve_symlink_within (otherwise an image could
-	// trick the helper into bind-mounting host paths over runner /).
+	fmt.Println("\n=== Symlink traversal stays inside the action root ===")
 	escapePath := filepath.Join(dockerRoot, "escape")
 	if err := os.Symlink("../../etc", escapePath); err != nil {
 		die(fmt.Sprintf("create escape symlink: %v", err))
 	}
-	out, err = runHelper(helperPath, socketPath, "test-image",
+	out, _ = runHelper(helperPath, socketPath, "test-image",
 		[]string{"--no-network-isolation"},
-		"/bin/integration_test", "--probe=read-file", "/etc/image_marker")
-	check("Helper exits non-zero on escape symlink", err != nil)
-	check(fmt.Sprintf("Helper rejects escape with diagnostic (got: %s)", out),
-		strings.Contains(out, "escapes docker_root"))
+		"/bin/integration_test", "--probe=read-file", "/escape/image_marker")
+	checkOutput("Symlink traversal resolves within the action root", "from-docker-image", out)
 	os.Remove(escapePath)
 
+	fmt.Println("\n=== Concurrent actions using different image layouts ===")
+	const actions = 16
+	failures := 0
+	var firstFailure string
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	for i := 0; i < actions; i++ {
+		imageRef := "test-image"
+		path, expected := "/etc/image_marker", "from-docker-image"
+		if i%2 == 1 {
+			imageRef = "other-image"
+			path, expected = "/sbin", "other-image-file"
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			out, err := runHelper(helperPath, socketPath, imageRef, []string{"--no-network-isolation"},
+				"/bin/integration_test", "--probe=read-file", path)
+			if err != nil || out != expected {
+				mu.Lock()
+				failures++
+				if firstFailure == "" {
+					firstFailure = fmt.Sprintf("%s: %v: %s", imageRef, err, out)
+				}
+				mu.Unlock()
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	check(fmt.Sprintf("%d concurrent actions succeeded (failures: %d, first: %s)", actions, failures, firstFailure), failures == 0)
+
+	stageEntries, err := os.ReadDir("/var/action_root")
+	check(fmt.Sprintf("Staging mount point is empty (got: %v)", stageEntries), err == nil && len(stageEntries) == 0)
+	for _, name := range []string{"sbin", "top_level_file"} {
+		_, err := os.Lstat("/" + name)
+		check(fmt.Sprintf("No image mount point left in runner root at /%s", name), os.IsNotExist(err))
+	}
+
+	fmt.Println("\n=== Overlay mode (sequential actions only) ===")
+	// Omitting root-mode selects overlay. Reuse the staging directory across
+	// images where /sbin changes from a symlink to a file and back again.
+	for _, imageRef := range []string{"test-image", "other-image", "test-image"} {
+		path, expected := "/sbin", "other-image-file"
+		if imageRef == "test-image" {
+			path, expected = "/lib/lib_marker", "from-usr-lib"
+		}
+		overlay := exec.Command(helperPath, "--docker-image-ref="+imageRef, "--fetcher-socket="+socketPath,
+			"--build-user=1000:1000", "--", "/bin/integration_test", "--probe=read-file", path)
+		overlayOut, err := overlay.CombinedOutput()
+		checkOutput("Default overlay image "+imageRef, expected, strings.TrimSpace(string(overlayOut)))
+		check("Default overlay command succeeds", err == nil)
+	}
+	out, err = runHelper(helperPath, socketPath, "test-image", []string{"--root-mode=overlay"},
+		"/bin/integration_test", "--probe=mkdir", "/foo")
+	checkOutput("Overlay root is read-only", "error: mkdir /foo: read-only file system", out)
+	check("Overlay probe succeeds", err == nil)
+	// Mount points remain on disk, but must not expose or modify the image.
+	info, err := os.Stat("/var/action_root/top_level_file")
+	check("Overlay leaves an empty file mount point", err == nil && info.Size() == 0)
+	marker, err := os.ReadFile(filepath.Join(dockerRoot, "usr/lib/lib_marker"))
+	check("Overlay cleanup preserves symlink targets", err == nil && string(marker) == "from-usr-lib")
+
+	fmt.Println("\n=== Staging roots below kept directories are rejected ===")
+	for _, stage := range []string{"/tmp/review_stage", filepath.Join(testDir, "tmp_link/review_stage")} {
+		out, err := runHelper(helperPath, socketPath, "test-image",
+			[]string{"--staging-root=" + stage},
+			"/bin/integration_test", "--probe=uid")
+		check("Rejects staging root "+stage,
+			err != nil && strings.Contains(out, "staging-root must not be below a kept directory"))
+	}
+
+	aliasConfig := filepath.Join(testDir, "alias.toml")
+	if err := os.WriteFile(aliasConfig, []byte("keep-dirs = [\"alias\"]\n"), 0o644); err != nil {
+		die(fmt.Sprintf("write alias config: %v", err))
+	}
+	for _, target := range []string{"/var", "/var/action_root"} {
+		if err := os.Symlink(target, "/alias"); err != nil {
+			die(fmt.Sprintf("create kept directory symlink: %v", err))
+		}
+		out, err := runHelper(helperPath, socketPath, "test-image",
+			[]string{"--root-mode=overlay", "--config=" + aliasConfig},
+			"/bin/integration_test", "--probe=uid")
+		check("Rejects kept directory resolving to "+target,
+			err != nil && strings.Contains(out, "staging-root must not be below a kept directory"))
+		if err := os.Remove("/alias"); err != nil {
+			die(fmt.Sprintf("remove kept directory symlink: %v", err))
+		}
+	}
+
+	fmt.Println("\n=== Inline working directory ===")
+	inlineRoot := "/runner/image"
+	workDir := filepath.Join(inlineRoot, "bazel_exec_root")
+	if err := setupDockerRoot(inlineRoot); err != nil {
+		die(fmt.Sprintf("setup inline root: %v", err))
+	}
+	for path, contents := range map[string][]byte{
+		filepath.Join(inlineRoot, "bin/integration_test"): data,
+		filepath.Join(testDir, "inline.toml"):             []byte("keep-dirs = [\"runner\"]\n"),
+	} {
+		if err := os.WriteFile(path, contents, 0o755); err != nil {
+			die(fmt.Sprintf("write inline fixture: %v", err))
+		}
+	}
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		die(fmt.Sprintf("create inline working directory: %v", err))
+	}
+	if err := os.Chown(workDir, 1000, 1000); err != nil {
+		die(fmt.Sprintf("chown inline working directory: %v", err))
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "input"), []byte("inline-input"), 0o644); err != nil {
+		die(fmt.Sprintf("write inline input: %v", err))
+	}
+	for _, mode := range []string{"tmpfs", "overlay"} {
+		for _, probe := range []struct{ name, path, expected string }{
+			{"read-file", "input", "inline-input"},
+			{"write-test", "output", "write succeeded"},
+		} {
+			cmd := exec.Command(helperPath, "--root-mode="+mode, "--build-user=1000:1000",
+				"--config="+filepath.Join(testDir, "inline.toml"), "--",
+				"/bin/integration_test", "--probe="+probe.name, probe.path)
+			cmd.Dir = workDir
+			out, err := cmd.CombinedOutput()
+			check(mode+" inline "+probe.name, err == nil && strings.TrimSpace(string(out)) == probe.expected)
+		}
+	}
 	fmt.Printf("\n================================\n")
 	fmt.Printf("Results: %d passed, %d failed\n", passed, failed)
 	fmt.Printf("================================\n")
@@ -299,10 +450,11 @@ func die(msg string) {
 }
 
 func cmdMockFetcher() {
-	if len(os.Args) != 4 {
-		die("Usage: integration_test --mock-fetcher <socket_path> <docker_root>")
+	if len(os.Args) != 5 {
+		die("Usage: integration_test --mock-fetcher <socket_path> <docker_root> <other_docker_root>")
 	}
-	socketPath, dockerRoot := os.Args[2], os.Args[3]
+	socketPath := os.Args[2]
+	dockerRoots := map[string]string{"test-image": os.Args[3], "other-image": os.Args[4]}
 
 	os.Remove(socketPath)
 	listener, err := net.Listen("unix", socketPath)
@@ -311,7 +463,7 @@ func cmdMockFetcher() {
 	}
 	defer listener.Close()
 
-	fmt.Fprintf(os.Stderr, "mock_fetcher: listening on %s, serving %s\n", socketPath, dockerRoot)
+	fmt.Fprintf(os.Stderr, "mock_fetcher: listening on %s\n", socketPath)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -326,8 +478,10 @@ func cmdMockFetcher() {
 				return
 			}
 			parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
-			if len(parts) == 2 && parts[0] == "ACQUIRE" {
-				fmt.Fprintf(c, "OK %s\n", dockerRoot)
+			if len(parts) == 2 && parts[0] == "ACQUIRE" && dockerRoots[parts[1]] != "" {
+				fmt.Fprintf(c, "OK %s\n", dockerRoots[parts[1]])
+				// Hold the image lease until the helper closes the socket.
+				io.Copy(io.Discard, c)
 			} else {
 				fmt.Fprintf(c, "ERROR bad request\n")
 			}

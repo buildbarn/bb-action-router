@@ -1,9 +1,8 @@
 /*
- * bb_chroot_helper - overlay docker image directories onto host root.
+ * bb_chroot_helper - run an action in a docker image root.
  *
  * Note: This is primarily tested by the integation test, which can currently only be invoked manually.
  */
-#include <dirent.h>
 #include <fcntl.h>
 #include <grp.h>
 #include <net/if.h>
@@ -18,9 +17,9 @@
 #include <sys/syscall.h>
 #include <sys/un.h>
 #include <sys/wait.h>
-#include <sys/xattr.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <climits>
@@ -30,10 +29,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <memory>
 #include <string>
 #include <thread>
-#include <unordered_set>
 
 #include "config.h"
 #include "mount.h"
@@ -45,11 +42,6 @@ namespace fs = std::filesystem;
 // operation in pkg/actionrouter/op_merge.go). We derive the image root
 // (everything above it) by splitting the working directory here.
 static constexpr const char* kBazelInputRootDir = "bazel_exec_root";
-
-// Xattr we set on every top-level entry we create in / so that the next run
-// can tell what to delete
-// Uses the user.* namespace so no special permissions are required.
-static constexpr const char* kOwnedXattr = "user.bb_chroot_helper.owned";
 
 // main is at the bottom so that I don't need to forward-declare all of the functions.
 // The bigger functions are laid out in the order in which they're executed, so the
@@ -170,69 +162,6 @@ static std::string acquire_docker_root(const std::string& socket_path, const std
   die("unexpected fetcher response: " + response);
 }
 
-// We don't have a cleanup when the process exits, so each time we start
-// the helper, we try to remove any toplevel dirs/files that might have been
-// created by the previous action.
-static void clean_stale_files_from_root(const Config& config) {
-  std::error_code ec;
-  for (const auto& entry : fs::directory_iterator("/", ec)) {
-    auto name = entry.path().filename().string();
-    if (should_keep_folder(config, name)) {
-      continue;
-    }
-
-    char buf[1];
-    // lgetxattr operates on the link itself, not the target.
-    if (lgetxattr(entry.path().c_str(), kOwnedXattr, buf, sizeof(buf)) < 0) {
-      continue;
-    }
-
-    if (entry.is_directory(ec)) {
-      if (rmdir(entry.path().c_str())) {
-        die_errno("removing stale directory " + entry.path().string());
-      }
-    } else {
-      if (unlink(entry.path().c_str())) {
-        die_errno("removing stale file" + entry.path().string());
-      }
-    }
-  }
-}
-
-// Resolve a symlink within docker_root to its target's absolute path,
-// rewriting absolute targets to stay rooted at docker_root so they
-// don't escape to the host filesystem. Only one hop of resolution is
-// performed; we die if the target is itself a symlink, since a chain
-// could otherwise be used to escape (an absolute symlink in the chain
-// would be followed by the kernel against the real filesystem). In
-// practice, docker images use at most one hop for entries like
-// /bin -> usr/bin.
-static fs::path resolve_symlink_within(const fs::path& docker_root, const fs::path& link) {
-  auto target = fs::read_symlink(link);
-  fs::path resolved;
-  if (target.is_absolute()) {
-    resolved = docker_root / target.relative_path();
-  } else {
-    resolved = link.parent_path() / target;
-  }
-  resolved = resolved.lexically_normal();
-
-  // Reject targets that try to escape docker_root via ".."
-  // (for example "../../etc").
-  auto root_str = docker_root.lexically_normal().string();
-  auto resolved_str = resolved.string();
-  if (resolved_str != root_str && resolved_str.rfind(root_str + "/", 0) != 0) {
-    die("symlink target escapes docker_root: " + link.string() + " -> " + target.string() + " (resolved to " +
-        resolved_str + ")");
-  }
-
-  std::error_code ec;
-  if (fs::is_symlink(fs::symlink_status(resolved, ec))) {
-    die("symlink chain not supported: " + link.string() + " -> " + target.string() + " -> (another symlink)");
-  }
-  return resolved;
-}
-
 // In inline mode there is no fetcher: the action's merged input root is the
 // helper's current working directory tree. Derive the image root by splitting
 // the CWD at the first kBazelInputRootDir component.
@@ -250,57 +179,6 @@ static std::string derive_inline_docker_root() {
     acc /= part;
   }
   die(std::string("could not find ") + kBazelInputRootDir + " in working directory " + cwd.string());
-}
-
-// This prepares the root dir for the subsequent `mount --bind` calls.  We need
-// empty dirs/files to be in place to act as mount points.  This needs to be
-// done while we're still root, hence the separate function.
-//
-// Every entry we create gets tagged with kOwnedXattr so clean_stale_files_from_root
-// on the next run knows what to remove. Entries that already exist (base image)
-// are left untagged and untouched.
-static void prepare_root(const Config& config, const std::string& docker_root) {
-  std::error_code ec;
-  for (const auto& entry : fs::directory_iterator(docker_root, ec)) {
-    auto name = entry.path().filename().string();
-    if (should_keep_folder(config, name)) {
-      continue;
-    }
-
-    std::string dst = "/" + name;
-
-    // status() follows symlinks — a docker_root /bin -> usr/bin symlink
-    // is treated as a directory and not a file. This is mostly because
-    // /bin and /var are directories in the chroot runner image and so it's
-    // not possible to replace them with files that are symlinks.
-    // We could special case just these two, but well-formed actions outputs
-    // shouldn't depend on whether /bin is a "real" directory or a symlink.
-    auto status = fs::status(entry.path(), ec);
-
-    if (fs::is_directory(status)) {
-      if (!fs::exists(fs::symlink_status(dst))) {
-        if (mkdir(dst.c_str(), 0755) != 0 && errno != EEXIST) {
-          die_errno("mkdir " + dst);
-        }
-        if (lsetxattr(dst.c_str(), kOwnedXattr, "1", 1, 0) != 0) {
-          die_errno("setxattr " + dst);
-        }
-      }
-    } else if (fs::is_regular_file(status)) {
-      // It's possible to `mount --bind` a single file as long as there exists
-      // a target file to act as the mount point.
-      if (!fs::exists(fs::symlink_status(dst))) {
-        int fd = open(dst.c_str(), O_WRONLY | O_CREAT, 0644);
-        if (fd < 0) {
-          die_errno("create mount point " + dst);
-        }
-        close(fd);
-        if (lsetxattr(dst.c_str(), kOwnedXattr, "1", 1, 0) != 0) {
-          die_errno("setxattr " + dst);
-        }
-      }
-    }
-  }
 }
 
 // We don't want to overwrite /etc/passwd as that would mess with the CAS
@@ -332,10 +210,9 @@ static void bind_mount_ro(const std::string& src, const std::string& dst, unsign
   }
 }
 
-// Bind-mount host /etc files onto the docker root's /etc before
-// overlay. When overlay later mounts docker_root/etc onto /etc,
-// these inner bind mounts propagate through, so /etc/resolv.conf
-// etc. show the host's versions.
+// Bind-mount host /etc files onto the docker root's /etc before mounting
+// the image's /etc into the private root. This makes the host's versions
+// of /etc/resolv.conf etc. visible to the action.
 // This is needed for DNS resolution to work correctly.
 static void bind_mount_etc_files(const Config& config, const std::string& docker_root) {
   for (const auto& name : config.etc_files) {
@@ -348,32 +225,8 @@ static void bind_mount_etc_files(const Config& config, const std::string& docker
   }
 }
 
-// Overlay docker_root onto / and hide runner top-level dirs that don't
-// appear in docker_root.
-static void overlay_root_dirs(const Config& config, const std::string& docker_root, bool require_deferred) {
-  struct Overlay {
-    std::string src;
-    std::string dst;
-    unsigned long extra_flags;
-  };
-  std::unique_ptr<Overlay> deferred_mount;
-  std::unordered_set<std::string> bind_mounts;
-
-  // Derive the top-level directory that contains docker_root (e.g. "var"
-  // for /var/run/fetcher/...). That one has to be mounted last.
-  std::string deferred_name;
-  for (const auto& part : fs::path(docker_root)) {
-    std::string s = part.string();
-    if (s.empty() || s == "/") {
-      continue;
-    }
-    deferred_name = s;
-    break;
-  }
-  if (deferred_name.empty()) {
-    die("cannot derive top-level dir from docker_root: " + docker_root);
-  }
-
+// Bind the image's top-level entries into a private root.
+static void mount_image_root(const Config& config, const std::string& docker_root, const std::string& root) {
   std::error_code ec;
   auto it = fs::directory_iterator(docker_root, ec);
   if (ec) {
@@ -386,62 +239,49 @@ static void overlay_root_dirs(const Config& config, const std::string& docker_ro
     }
 
     fs::path src_path = entry.path();
-    if (fs::is_symlink(fs::symlink_status(src_path))) {
-      src_path = resolve_symlink_within(docker_root, src_path);
-    }
-    auto status = fs::status(src_path, ec);
+    auto dst = root + "/" + name;
+    auto status = fs::symlink_status(src_path, ec);
     if (ec) {
-      die_errno("iterate within docker_root " + src_path.string());
+      die("stat " + src_path.string() + ": " + ec.message());
+    }
+    if (fs::is_symlink(status)) {
+      auto target = fs::read_symlink(src_path);
+      if (symlink(target.c_str(), dst.c_str()) != 0) {
+        die_errno("symlink " + dst);
+      }
+      continue;
     }
 
     auto src = src_path.string();
-    auto dst = "/" + name;
-    unsigned long extra_flags = fs::is_directory(status) ? MS_REC : 0;
-    if (name == deferred_name) {
-      // All the other bind-mounts point into here, so it must be bind-mounted over last.
-      deferred_mount = std::unique_ptr<Overlay>(new Overlay{src, dst, extra_flags});
-    } else {
-      bind_mounts.insert(name);
-      bind_mount_ro(src, dst, extra_flags);
-    }
-  }
-
-  if (deferred_mount) {
-    auto dst = "/" + deferred_name;
-    bind_mount_ro(deferred_mount->src, dst, deferred_mount->extra_flags);
-  } else if (require_deferred) {
-    // In sideloaded mode we expect the fetcher to ensure that this directory (usually /var)
-    // exists in the materialized root. If we don't mount over it we'd be exposing
-    // the fetcher's image cache folder to the action.
-    // It not being there is likely a config error.
-    die("docker_root parent '" + deferred_name + "' has no matching entry; expected fetcher to create it");
-  }
-
-  // If anything is left over attempt to hide it with a tmpfs mount.
-  for (const auto& entry : fs::directory_iterator("/", ec)) {
-    auto name = entry.path().filename().string();
-    if (should_keep_folder(config, name)) {
-      continue;
-    }
-    if (bind_mounts.count(name)) {
-      continue;
-    }
-    if (name == deferred_name) {
-      continue;
-    }
-    auto dst = entry.path();
-    std::error_code dec;
-    if (entry.is_directory(dec)) {
-      if (mount("tmpfs", dst.c_str(), "tmpfs", MS_NOSUID | MS_NODEV, "size=0")) {
-        die_errno("mount tmpfs " + dst.string());
+    if (fs::is_directory(status)) {
+      if (mkdir(dst.c_str(), 0755) != 0) {
+        die_errno("mkdir " + dst);
       }
-    } else {
-      // Leftover non-directory entries can't take a tmpfs mount. Hide their
-      // contents by bind-mounting /dev/null over them. /dev is in the keep
-      // list, so /dev/null should be available.
-      if (mount("/dev/null", dst.c_str(), nullptr, MS_BIND, nullptr)) {
-        die_errno("mount --bind /dev/null over " + dst.string());
+    } else if (fs::is_regular_file(status)) {
+      int fd = open(dst.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0644);
+      if (fd < 0) {
+        die_errno("create mount point " + dst);
       }
+      close(fd);
+    } else {
+      die("unsupported top-level image entry: " + src);
+    }
+    bind_mount_ro(src, dst, fs::is_directory(status) ? MS_REC : 0);
+  }
+}
+
+static void mount_keep_dirs(const Config& config, const std::string& root) {
+  for (const auto& name : config.keep_list) {
+    std::string src = "/" + name;
+    if (!fs::exists(src)) {
+      continue;
+    }
+    std::string dst = root + src;
+    if (mkdir(dst.c_str(), 0755) != 0) {
+      die_errno("mkdir " + dst);
+    }
+    if (mount(src.c_str(), dst.c_str(), nullptr, MS_BIND | MS_REC, nullptr) != 0) {
+      die_errno("mount --bind " + dst);
     }
   }
 }
@@ -578,10 +418,36 @@ int main(int argc, char** argv) {
     docker_root = acquire_docker_root(config.fetcher_socket, config.docker_image_ref);
   }
 
-  // (as root) prepare filesystem
   assert_build_user_exists(docker_root, config.build_uid, config.build_gid);
-  clean_stale_files_from_root(config);
-  prepare_root(config, docker_root);
+
+  if (mkdir(config.staging_root.c_str(), 0755) != 0 && errno != EEXIST) {
+    die_errno("mkdir " + config.staging_root);
+  }
+  std::error_code ec;
+  auto staging_root = fs::canonical(config.staging_root, ec);
+  if (ec || staging_root.parent_path() == "/" || !fs::is_directory(staging_root)) {
+    die("invalid staging root " + config.staging_root);
+  }
+  auto root = staging_root.string();
+  for (const auto& name : config.keep_list) {
+    auto src = "/" + name;
+    if (!fs::exists(src)) {
+      continue;
+    }
+    auto kept_root = fs::canonical(src, ec);
+    if (ec) {
+      die("resolve kept directory " + src + ": " + ec.message());
+    }
+    // Compare path components so symlinked keep directories cannot expose
+    // the staging root, without confusing siblings such as /var/a and /var/ab.
+    if (std::mismatch(kept_root.begin(), kept_root.end(), staging_root.begin(), staging_root.end()).first ==
+        kept_root.end()) {
+      die("staging-root must not be below a kept directory: " + root);
+    }
+  }
+  if (config.root_mode == "overlay" && chown(root.c_str(), config.host_uid, config.host_gid) != 0) {
+    die_errno("chown " + root);
+  }
 
   // Drop to the host user, which is what the build user is mapped to inside the
   // user namespace created below.
@@ -622,9 +488,42 @@ int main(int argc, char** argv) {
     die_errno("mount --make-rprivate /");
   }
 
-  // Do the fake chroot.
+  if (config.root_mode == "tmpfs") {
+    // Each mount namespace gets its own root at the same mount point.
+    if (mount("tmpfs", root.c_str(), "tmpfs", MS_NOSUID | MS_NODEV, "mode=0755") != 0) {
+      die_errno("mount tmpfs " + root);
+    }
+  } else {
+    // Sequential actions reuse only the empty mount points and symlinks left
+    // by the previous action. Never recurse into directories or mounts.
+    for (const auto& entry : fs::directory_iterator(root)) {
+      if (!fs::remove(entry.path(), ec) || ec) {
+        die("remove stale mount point " + entry.path().string() + ": " + ec.message());
+      }
+    }
+    // Give the staging directory its own mount so making it read-only does
+    // not change the mount containing the runner or image cache.
+    if (mount(root.c_str(), root.c_str(), nullptr, MS_BIND, nullptr) != 0) {
+      die_errno("mount --bind " + root);
+    }
+  }
+  mount_keep_dirs(config, root);
   bind_mount_etc_files(config, docker_root);
-  overlay_root_dirs(config, docker_root, !inline_mode);
+  mount_image_root(config, docker_root, root);
+  if (mark_mount_readonly(root.c_str()) != 0) {
+    die_errno("mark readonly " + root);
+  }
+
+  char cwd[PATH_MAX];
+  if (getcwd(cwd, sizeof(cwd)) == nullptr) {
+    die_errno("getcwd");
+  }
+  if (chroot(root.c_str()) != 0) {
+    die_errno("chroot " + root);
+  }
+  if (chdir(cwd) != 0) {
+    die_errno(std::string("chdir ") + cwd);
+  }
 
   run_and_fwd_signals(&argv[cmd_start]);
 }

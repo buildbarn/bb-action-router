@@ -1,3 +1,5 @@
+root-mode = "tmpfs"
+
 # The worker's build directory is /runner/build (see base/config/worker.jsonnet),
 # so /runner has to stay visible: it holds the action's working directory and, in
 # inline mode, the merged image root itself.
