@@ -42,7 +42,7 @@ func (p *ImagePuller) GetImageFromRef(imageRef string) (v1.Image, context.Cancel
 	// Create context with timeout from background, not from parent context
 	// This ensures layer downloads aren't canceled if the action context is canceled
 	ctx := context.Background()
-	var cancel func()
+	cancel := func() {}
 
 	if p.pullTimeout > 0 {
 		// We DON'T defer cancel() here because the layer objects need this context

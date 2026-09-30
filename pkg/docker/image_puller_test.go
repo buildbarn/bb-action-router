@@ -1,9 +1,13 @@
 package docker
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/random"
 )
 
@@ -51,6 +55,32 @@ func TestImagePuller_validateImageSize(t *testing.T) {
 					t.Errorf("validateImageSize() error = %v, want error containing %q", err, tt.errContains)
 				}
 			}
+		})
+	}
+}
+
+func TestImagePuller_GetImageFromRefCancel(t *testing.T) {
+	manifest, err := empty.Image.RawManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.docker.distribution.manifest.v2+json")
+		_, _ = w.Write(manifest)
+	}))
+	defer server.Close()
+
+	for _, timeout := range []time.Duration{0, time.Minute} {
+		t.Run(timeout.String(), func(t *testing.T) {
+			puller := NewImagePuller(nil, 0, timeout)
+			_, cancel, err := puller.GetImageFromRef(strings.TrimPrefix(server.URL, "http://") + "/image:latest")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cancel == nil {
+				t.Fatal("successful pull returned a nil cancel function")
+			}
+			cancel()
 		})
 	}
 }
