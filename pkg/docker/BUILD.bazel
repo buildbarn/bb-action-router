@@ -27,5 +27,8 @@ go_test(
         "image_ref_test.go",
     ],
     embed = [":docker"],
-    deps = ["@com_github_google_go_containerregistry//pkg/v1/random"],
+    deps = [
+        "@com_github_google_go_containerregistry//pkg/v1/empty",
+        "@com_github_google_go_containerregistry//pkg/v1/random",
+    ],
 )
