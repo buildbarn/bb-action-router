@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"github.com/buildbarn/bb-action-router/pkg/actionrouter"
@@ -102,6 +102,40 @@ func (h *connectionHandler) handleConnection(ctx context.Context, conn net.Conn)
 	_, _ = conn.Read(buf)
 
 	slog.Debug("Connection closed — releasing root", "image", imageRef)
+}
+
+func (h *connectionHandler) serve(ctx context.Context, listener net.Listener) error {
+	var inFlight sync.WaitGroup
+	go func() {
+		<-ctx.Done()
+		slog.Info("docker_root_fetcher: closing listener")
+		listener.Close()
+	}()
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			if ctx.Err() != nil {
+				// The accept loop has stopped, so no new handlers can
+				// be added while we wait for existing clients to finish.
+				slog.Info("docker_root_fetcher: draining connections")
+				inFlight.Wait()
+				return nil
+			}
+			return err
+		}
+		if ctx.Err() != nil {
+			conn.Close()
+			continue
+		}
+		inFlight.Add(1)
+		go func() {
+			defer inFlight.Done()
+			// Pass background so that clients can finish when we're
+			// being terminated.
+			h.handleConnection(context.Background(), conn)
+		}()
+	}
 }
 
 // materializer pulls a docker image into a per-call ephemeral CAS, then
@@ -383,32 +417,6 @@ func main() {
 		go lifecycleState.MarkReadyAndWait(siblingsGroup)
 		slog.Info("docker_root_fetcher: listening", "socket", socketPath)
 
-		var inFlight atomic.Int64
-		go func() {
-			<-ctx.Done()
-			slog.Info("docker_root_fetcher: shutdown initiated...")
-			for inFlight.Load() > 0 {
-				time.Sleep(time.Second)
-			}
-			slog.Info("docker_root_fetcher: closing listener")
-			listener.Close()
-		}()
-
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
-				return err
-			}
-			inFlight.Add(1)
-			go func() {
-				defer inFlight.Add(-1)
-				// Pass background so that clients can finish when we're
-				// being terminated.
-				handler.handleConnection(context.Background(), conn)
-			}()
-		}
+		return handler.serve(ctx, listener)
 	})
 }
