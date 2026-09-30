@@ -20,10 +20,10 @@ import (
 
 // ImageToCASUploader pulls Docker images and uploads their contents to CAS
 type ImageToCASUploader struct {
-	puller     *docker.ImagePuller
-	batchedCas bb_blobstore.BlobAccess
-	casFlusher func(context.Context) error
-	buildUser  blobstore.UnixUser
+	puller                     *docker.ImagePuller
+	cas                        bb_blobstore.BlobAccess
+	uploadConcurrencySemaphore *semaphore.Weighted
+	buildUser                  blobstore.UnixUser
 }
 
 var imagePullDurationSeconds = promauto.NewHistogramVec(
@@ -39,23 +39,11 @@ var imagePullDurationSeconds = promauto.NewHistogramVec(
 
 // NewImageToCasUploader creates a new ImageToCASUploader.
 func NewImageToCasUploader(puller *docker.ImagePuller, cas bb_blobstore.BlobAccess, buildUser blobstore.UnixUser) *ImageToCASUploader {
-	// Use batched storage to improve upload performance. Parameters are tuned for a local block storage implementation
-	// and the main benefit of using it is that the Put operations effectively become non-blocking.
-	// Use a semaphore to limit concurrency during batch uploads
-	uploadConcurrencySemaphore := semaphore.NewWeighted(50)
-	// For a non-local CAS use batch size == RecommendedFindMissingDigestsCount
-	batchSize := 100
-	batchedCAS, casFlusher := re_blobstore.NewBatchedStoreBlobAccess(
-		cas,
-		bb_digest.KeyWithoutInstance,
-		batchSize,
-		uploadConcurrencySemaphore,
-	)
 	return &ImageToCASUploader{
-		puller:     puller,
-		batchedCas: batchedCAS,
-		casFlusher: casFlusher,
-		buildUser:  buildUser,
+		puller:                     puller,
+		cas:                        cas,
+		uploadConcurrencySemaphore: semaphore.NewWeighted(50),
+		buildUser:                  buildUser,
 	}
 }
 
@@ -83,9 +71,19 @@ func (u *ImageToCASUploader) UploadImageToCAS(ctx context.Context, ref string, d
 }
 
 func (u *ImageToCASUploader) uploadImageToCASImpl(ctx context.Context, ref string, digestFunction bb_digest.Function) (digest *remoteexecution.Digest, retErr error) {
+	// Keep pending blobs and flush errors local to this upload, while sharing
+	// the concurrency limit across uploads.
+	// For a non-local CAS use batch size == RecommendedFindMissingDigestsCount.
+	batchSize := 100
+	batchedCAS, casFlusher := re_blobstore.NewBatchedStoreBlobAccess(
+		u.cas,
+		bb_digest.KeyWithoutInstance,
+		batchSize,
+		u.uploadConcurrencySemaphore,
+	)
 	// Flush batched uploads to CAS. We want this to always run as it ensures all temp files are deleted.
 	defer func() {
-		if err := u.casFlusher(ctx); err != nil {
+		if err := casFlusher(ctx); err != nil {
 			if retErr == nil {
 				retErr = util.StatusWrap(err, "Failed to flush batched uploads to CAS")
 			} else {
@@ -121,7 +119,7 @@ func (u *ImageToCASUploader) uploadImageToCASImpl(ctx context.Context, ref strin
 	// - probably would need to split this across mulitple Pods to get more
 	//   network bandwidth (both to storage and to Artifactory)
 	// - would need to handle whiteout and overwrites when merging multiple layers.
-	extractor := blobstore.NewCASUploadingLayerExtractor(u.batchedCas, digestFunction)
+	extractor := blobstore.NewCASUploadingLayerExtractor(batchedCAS, digestFunction)
 	visitor := blobstore.NewBuildUserInjectingVisitor(extractor, u.buildUser)
 	for i, layer := range layers {
 		slog.Debug("Processing image layer", "image", ref, "layer", i+1, "layers", len(layers))
