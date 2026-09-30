@@ -285,6 +285,17 @@ func loadDirectory(ctx context.Context, cas bb_blobstore.BlobAccess, maxMessageS
 }
 
 func putDirectory(ctx context.Context, cas bb_blobstore.BlobAccess, directory *remoteexecution.Directory, digestFunction digest.Function) (digest.Digest, error) {
+	// Sort all entry lists, including those loaded from older cached image roots.
+	slices.SortFunc(directory.Files, func(a, b *remoteexecution.FileNode) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+	slices.SortFunc(directory.Directories, func(a, b *remoteexecution.DirectoryNode) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+	slices.SortFunc(directory.Symlinks, func(a, b *remoteexecution.SymlinkNode) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+
 	data, err := proto.Marshal(directory)
 	if err != nil {
 		return digest.Digest{}, status.Errorf(codes.Internal, "Failed to marshal directory: %v", err)

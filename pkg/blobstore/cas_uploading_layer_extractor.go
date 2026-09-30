@@ -1,12 +1,14 @@
 package blobstore
 
 import (
+	"cmp"
 	"context"
 	"io"
 	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
@@ -325,8 +327,6 @@ func (u *uploadDirState) upload(ctx context.Context, cas bb_blobstore.BlobAccess
 		})
 	}
 
-	// TODO: The protocol requires these to be sorted but the current implementation doesn't
-	// upload these to a "real" CAS, so the only downside is that the digests aren't stable.
 	directory := &remoteexecution.Directory{
 		Directories: dirNodes,
 		Symlinks:    toSlice(u.symlinks),
@@ -337,6 +337,17 @@ func (u *uploadDirState) upload(ctx context.Context, cas bb_blobstore.BlobAccess
 	if err != nil {
 		return nil, err
 	}
+
+	// REv2 requires each entry list to be sorted by name before hashing.
+	slices.SortFunc(directory.Files, func(a, b *remoteexecution.FileNode) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+	slices.SortFunc(directory.Directories, func(a, b *remoteexecution.DirectoryNode) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+	slices.SortFunc(directory.Symlinks, func(a, b *remoteexecution.SymlinkNode) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
 
 	data, err := proto.Marshal(directory)
 	if err != nil {

@@ -343,6 +343,54 @@ func TestCASUploadingLayerExtractor(t *testing.T) {
 	})
 }
 
+func TestUploadDirStateSortedEntries(t *testing.T) {
+	ctx := context.Background()
+	df := digest.MustNewFunction("test", remoteexecution.DigestFunction_SHA256)
+	emptyDigest := df.NewGenerator(0).Sum()
+	names := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"}
+	expected := &remoteexecution.Directory{}
+	for _, name := range names {
+		expected.Files = append(expected.Files, &remoteexecution.FileNode{Name: name + ".txt", Digest: emptyDigest.GetProto()})
+		expected.Directories = append(expected.Directories, &remoteexecution.DirectoryNode{Name: name, Digest: emptyDigest.GetProto()})
+		expected.Symlinks = append(expected.Symlinks, &remoteexecution.SymlinkNode{Name: name + ".link", Target: name + ".txt"})
+	}
+	data, err := proto.Marshal(expected)
+	require.NoError(t, err)
+	gen := df.NewGenerator(int64(len(data)))
+	_, err = gen.Write(data)
+	require.NoError(t, err)
+	expectedDigest := gen.Sum()
+
+	for _, reverse := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reverse=%t", reverse), func(t *testing.T) {
+			mockCas := mock.NewMockBlobAccess(gomock.NewController(t))
+			mockCas.EXPECT().Put(ctx, emptyDigest, gomock.Any()).DoAndReturn(func(_ context.Context, _ digest.Digest, b buffer.Buffer) error {
+				b.Discard()
+				return nil
+			}).Times(len(names))
+			mockCas.EXPECT().Put(ctx, expectedDigest, gomock.Any()).DoAndReturn(func(_ context.Context, _ digest.Digest, b buffer.Buffer) error {
+				got, err := b.ToByteSlice(10000)
+				require.NoError(t, err)
+				require.Equal(t, data, got)
+				return nil
+			})
+			order := slices.Clone(names)
+			if reverse {
+				slices.Reverse(order)
+			}
+			dir := newUploadDirState()
+			for _, name := range order {
+				dir.files[name+".txt"] = &remoteexecution.FileNode{Name: name + ".txt", Digest: emptyDigest.GetProto()}
+				dir.subDirs[name] = newUploadDirState()
+				dir.symlinks[name+".link"] = &remoteexecution.SymlinkNode{Name: name + ".link", Target: name + ".txt"}
+			}
+			got, err := dir.upload(ctx, mockCas, df)
+			require.NoError(t, err)
+			require.Equal(t, expectedDigest.GetProto(), got)
+		})
+	}
+}
+
 func TestSplitPath(t *testing.T) {
 	tests := []struct {
 		name     string
