@@ -40,6 +40,7 @@ go_test(
         "build_user_test.go",
         "image_to_cas_uploader_test.go",
         "operations_test.go",
+        "pipeline_test.go",
     ],
     embed = [":actionrouter"],
     deps = [
@@ -57,5 +58,6 @@ go_test(
         "@com_github_google_go_containerregistry//pkg/v1/random",
         "@com_github_google_go_containerregistry//pkg/v1/remote",
         "@com_github_stretchr_testify//require",
+        "@org_golang_google_protobuf//proto",
     ],
 )
