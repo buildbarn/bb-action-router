@@ -1,6 +1,6 @@
 module github.com/buildbarn/bb-action-router
 
-go 1.26.3
+go 1.27.1
 
 require (
 	github.com/bazelbuild/remote-apis v0.0.0-20260331222004-becdd8f9ff81
