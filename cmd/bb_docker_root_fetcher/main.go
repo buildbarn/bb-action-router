@@ -24,6 +24,7 @@ import (
 	"github.com/buildbarn/bb-remote-execution/pkg/builder"
 	"github.com/buildbarn/bb-remote-execution/pkg/cas"
 	bb_blobstore "github.com/buildbarn/bb-storage/pkg/blobstore"
+	bb_cas "github.com/buildbarn/bb-storage/pkg/cas"
 	bb_digest "github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/buildbarn/bb-storage/pkg/filesystem"
 	"github.com/buildbarn/bb-storage/pkg/filesystem/path"
@@ -147,10 +148,16 @@ type rootFetcher struct {
 
 func (m *materializer) newRootFetcher(blobAccess bb_blobstore.BlobAccess) *rootFetcher {
 	return &rootFetcher{
-		directoryFetcher: cas.NewBlobAccessDirectoryFetcher(blobAccess, m.maxMessageSize, 0),
-		fileFetcher:      cas.NewBlobAccessFileFetcher(blobAccess),
-		semaphore:        semaphore.NewWeighted(int64(m.fetchParallelism)),
-		cas:              blobAccess,
+		directoryFetcher: cas.NewBlobAccessDirectoryFetcher(
+			blobAccess,
+			bb_cas.NewBlobAccessMessageReader[remoteexecution.Directory](blobAccess, m.maxMessageSize),
+			bb_cas.NewBlobAccessStreamReader(blobAccess),
+			m.maxMessageSize,
+			0,
+		),
+		fileFetcher: cas.NewBlobAccessFileFetcher(blobAccess),
+		semaphore:   semaphore.NewWeighted(int64(m.fetchParallelism)),
+		cas:         blobAccess,
 	}
 }
 
