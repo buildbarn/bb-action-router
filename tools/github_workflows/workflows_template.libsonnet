@@ -34,7 +34,7 @@
       steps: [
         {
           name: 'Check out source code',
-          uses: 'actions/checkout@v1',
+          uses: 'actions/checkout@v7.0.1',
         },
       ] + setupSteps + [
         bazelInstallStep('${{matrix.host.bazel_os}}'),
@@ -64,7 +64,7 @@
       steps: [
         {
           name: 'Check out source code',
-          uses: 'actions/checkout@v1',
+          uses: 'actions/checkout@v7.0.1',
         },
       ] + setupSteps + [
         bazelInstallStep('linux'),
@@ -113,7 +113,7 @@
           steps: [
             {
               name: 'Check out source code',
-              uses: 'actions/checkout@v4',
+              uses: 'actions/checkout@v7.0.1',
             },
             {
               name: 'Install Docker credentials',
