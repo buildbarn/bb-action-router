@@ -3,9 +3,9 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 # Re-pin via:
 #   crane digest --platform linux/arm64 docker.io/library/debian:bookworm-slim
 #   crane digest --platform linux/amd64 docker.io/library/debian:bookworm-slim
-DEBIAN_SLIM_ARM64 = "docker://docker.io/library/debian@sha256:f1433d3ee18e12f45682b29d91b6356e54e40d6b47f5f8ac81e80f35cca8cfe7"
+DEBIAN_SLIM_ARM64 = "docker://docker.io/library/debian@sha256:0c8bbb8e987a035fe1d9704eb2e571b7e9a836e1caa46345290674b45b69e417"
 
-DEBIAN_SLIM_AMD64 = "docker://docker.io/library/debian@sha256:b29f74a267526ae6ea104eed6c46133b0ca70ce812525df8cd5817698f0a624a"
+DEBIAN_SLIM_AMD64 = "docker://docker.io/library/debian@sha256:f3034a6ec3c1205360777c4aae76234998866ad18806ae62b63a3f84ccad782b"
 
 sh_test(
     name = "os_release_test_arm64",

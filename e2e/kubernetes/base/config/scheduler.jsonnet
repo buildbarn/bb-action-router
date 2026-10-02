@@ -4,7 +4,7 @@ local common = import 'common.libsonnet';
 // via the `remote` action router. That service rewrites docker actions (in
 // either inline or sideloaded mode) before they are queued for execution.
 {
-  adminHttpServers: [{
+  deprecatedAdminHttpServers: [{
     listenAddresses: [':7982'],
     authenticationPolicy: { allow: {} },
   }],
@@ -20,7 +20,7 @@ local common = import 'common.libsonnet';
     listenAddresses: [':8984'],
     authenticationPolicy: { allow: {} },
   }],
-  browserUrl: common.browserUrl,
+  deprecatedPortalUrl: common.browserUrl,
   contentAddressableStorage: common.blobstore.contentAddressableStorage,
   maximumMessageSizeBytes: common.maximumMessageSizeBytes,
   global: common.global,
