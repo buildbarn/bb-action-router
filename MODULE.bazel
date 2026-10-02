@@ -23,20 +23,20 @@ bazel_dep(name = "toolchains_musl", version = "0.1.27.bcr.1")
 # registry.
 git_override(
     module_name = "bazel_remote_apis",
-    commit = "becdd8f9ff811df88a22d3eadd6341753d51d167",
+    commit = "adbf4a27c86fbea4a37637a6cbcacef372406fe7",
     patches = ["//:patches/bazel_remote_apis/upstream-pr-378.diff"],
     remote = "https://github.com/bazelbuild/remote-apis.git",
 )
 
 git_override(
     module_name = "com_github_buildbarn_bb_storage",
-    commit = "3991d6ebefb4cfc7c1956caaba5a28d1b2eca927",
+    commit = "027bd797f1ec7631b49c4f459c06dee995f7e2f9",
     remote = "https://github.com/buildbarn/bb-storage.git",
 )
 
 git_override(
     module_name = "com_github_buildbarn_bb_remote_execution",
-    commit = "c48dcda5e792227f50ec5bae0fcec1ab2e40fb48",
+    commit = "1a3be95748727e2f03660925916ab39ee6c79d17",
     remote = "https://github.com/buildbarn/bb-remote-execution.git",
 )
 
