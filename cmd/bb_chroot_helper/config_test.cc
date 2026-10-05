@@ -63,7 +63,7 @@ TEST(Config, Defaults) {
   EXPECT_EQ(r.config.docker_image_ref, "");
   EXPECT_EQ(r.config.fetcher_socket, "/var/run/fetcher/fetcher.sock");
   EXPECT_EQ(r.config.staging_root, "/var/action_root");
-  EXPECT_EQ(r.config.root_mode, "overlay");
+  EXPECT_EQ(r.config.root_mode, RootMode::Overlay);
   EXPECT_FALSE(r.config.isolate_network);
   EXPECT_EQ(r.config.build_uid, 0);
   EXPECT_EQ(r.config.build_gid, 0);
@@ -164,7 +164,7 @@ gid = 65534
   ASSERT_TRUE(r.ok) << r.error;
   EXPECT_EQ(r.config.fetcher_socket, "/var/fetcher/fetcher.sock");
   EXPECT_EQ(r.config.staging_root, "/tmp/bb_chroot_helper");
-  EXPECT_EQ(r.config.root_mode, "tmpfs");
+  EXPECT_EQ(r.config.root_mode, RootMode::Tmpfs);
   EXPECT_TRUE(r.config.isolate_network);
   EXPECT_EQ(r.config.build_uid, 1000);
   EXPECT_EQ(r.config.build_gid, 1001);
@@ -213,7 +213,7 @@ gid = 1000
   EXPECT_EQ(r.config.build_gid, 6);
   EXPECT_EQ(r.config.fetcher_socket, "/from-flag.sock");
   EXPECT_EQ(r.config.staging_root, "/tmp/from-flag");
-  EXPECT_EQ(r.config.root_mode, "overlay");
+  EXPECT_EQ(r.config.root_mode, RootMode::Overlay);
   EXPECT_FALSE(r.config.isolate_network);
 
   // Settings the flags don't mention still come from the file.
@@ -222,7 +222,7 @@ gid = 1000
   EXPECT_EQ(r.config.build_uid, 1000);
   EXPECT_EQ(r.config.fetcher_socket, "/from-config.sock");
   EXPECT_EQ(r.config.staging_root, "/var/from-config");
-  EXPECT_EQ(r.config.root_mode, "tmpfs");
+  EXPECT_EQ(r.config.root_mode, RootMode::Tmpfs);
   EXPECT_TRUE(r.config.isolate_network);
 }
 
@@ -322,13 +322,16 @@ TEST(Config, HostUserRootIsRejected) {
 
 TEST(Config, RootModeValidation) {
   for (const char* mode : {"overlay", "tmpfs", "", "unknown"}) {
-    ParseResult r = Parse({std::string("--root-mode=") + mode, "--", "true"});
-    ASSERT_TRUE(r.ok) << r.error;
-    std::string error;
     bool expected = std::string(mode) == "overlay" || std::string(mode) == "tmpfs";
-    EXPECT_EQ(validate_config(r.config, &error), expected) << mode;
-    if (!expected) {
-      EXPECT_THAT(error, HasSubstr("root-mode must be overlay or tmpfs"));
+    ParseResult flag = Parse({std::string("--root-mode=") + mode, "--", "true"});
+    ParseResult file = ParseFile(std::string("root-mode = \"") + mode + "\"\n");
+    for (const auto& r : {flag, file}) {
+      EXPECT_EQ(r.ok, expected) << mode;
+      if (expected) {
+        EXPECT_EQ(r.config.root_mode, std::string(mode) == "overlay" ? RootMode::Overlay : RootMode::Tmpfs);
+      } else {
+        EXPECT_THAT(r.error, HasSubstr("root-mode must be overlay or tmpfs"));
+      }
     }
   }
 }

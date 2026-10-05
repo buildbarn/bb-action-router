@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+enum class RootMode { Overlay, Tmpfs };
+
 // Settings for bb_chroot_helper.
 //
 // Fields start out at the built-in defaults, are then overridden by the config
@@ -24,7 +26,7 @@ struct Config {
 
   // overlay reuses the staging directory for sequential actions; tmpfs
   // gives each action a private root and supports concurrent actions.
-  std::string root_mode = "overlay";
+  RootMode root_mode = RootMode::Overlay;
 
   // Staging directory for the action root; must be dedicated to the helper.
   std::string staging_root = "/var/action_root";
