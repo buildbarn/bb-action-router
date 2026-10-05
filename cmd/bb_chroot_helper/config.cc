@@ -50,7 +50,9 @@ constexpr std::string_view kUserTableKeys[] = {kUid, kGid};
 constexpr int64_t kMaxId = 999999999;
 
 // The command line spelling of a setting.
-std::string flag_name(std::string_view name) { return "--" + std::string(name); }
+std::string flag_name(std::string_view name) {
+  return "--" + std::string(name);
+}
 
 // Prefix for an error message that points at a node in the config file.
 std::string at(const std::string& path, const toml::node& node) {
@@ -150,8 +152,8 @@ bool get_string_array(const toml::table& table, std::string_view key, std::vecto
       return false;
     }
     if (!is_single_path_component(*value)) {
-      *error = at(path, element) + std::string(key) + " entries must be a single path component, got \"" + *value +
-               "\"";
+      *error =
+          at(path, element) + std::string(key) + " entries must be a single path component, got \"" + *value + "\"";
       return false;
     }
     values.push_back(*value);
@@ -197,10 +199,8 @@ bool parse_id(const std::string& value, int* out) {
 
 bool parse_user_flag(std::string_view name, const std::string& value, int* uid, int* gid, std::string* error) {
   size_t colon = value.find(':');
-  if (colon == std::string::npos || !parse_id(value.substr(0, colon), uid) ||
-      !parse_id(value.substr(colon + 1), gid)) {
-    *error =
-        "invalid " + flag_name(name) + ": want UID:GID with non-negative decimal ids, got \"" + value + "\"";
+  if (colon == std::string::npos || !parse_id(value.substr(0, colon), uid) || !parse_id(value.substr(colon + 1), gid)) {
+    *error = "invalid " + flag_name(name) + ": want UID:GID with non-negative decimal ids, got \"" + value + "\"";
     return false;
   }
   return true;
