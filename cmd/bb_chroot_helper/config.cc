@@ -99,6 +99,34 @@ bool get_string(const toml::table& table, std::string_view key, std::string* out
   return true;
 }
 
+bool parse_root_mode(const std::string& value, RootMode* out, std::string* error) {
+  if (value == "overlay") {
+    *out = RootMode::Overlay;
+  } else if (value == "tmpfs") {
+    *out = RootMode::Tmpfs;
+  } else {
+    *error = "root-mode must be overlay or tmpfs";
+    return false;
+  }
+  return true;
+}
+
+bool get_root_mode(const toml::table& table, RootMode* out, const std::string& path, std::string* error) {
+  const toml::node* node = table.get(kRootMode);
+  if (node == nullptr) {
+    return true;
+  }
+  std::string value;
+  if (!get_string(table, kRootMode, &value, path, error)) {
+    return false;
+  }
+  if (!parse_root_mode(value, out, error)) {
+    *error = at(path, *node) + *error;
+    return false;
+  }
+  return true;
+}
+
 bool get_bool(const toml::table& table, std::string_view key, bool* out, const std::string& path, std::string* error) {
   const toml::node* node = table.get(key);
   if (node == nullptr) {
@@ -232,9 +260,8 @@ constexpr Flag kFlags[] = {
        return true;
      }},
     {kRootMode, "MODE",
-     [](const std::string& value, Config* config, std::string*) {
-       config->root_mode = value;
-       return true;
+     [](const std::string& value, Config* config, std::string* error) {
+       return parse_root_mode(value, &config->root_mode, error);
      }},
     {kStagingRoot, "PATH",
      [](const std::string& value, Config* config, std::string*) {
@@ -321,7 +348,7 @@ bool parse_config_file(const std::string& path, Config* config, std::string* err
 
   std::vector<std::string> keep_dirs;
   if (!get_string(root, kFetcherSocket, &config->fetcher_socket, path, error) ||
-      !get_string(root, kRootMode, &config->root_mode, path, error) ||
+      !get_root_mode(root, &config->root_mode, path, error) ||
       !get_string(root, kStagingRoot, &config->staging_root, path, error) ||
       !get_bool(root, kNetworkIsolation, &config->isolate_network, path, error) ||
       !get_user_table(root, kBuildUser, &config->build_uid, &config->build_gid, path, error) ||
@@ -382,10 +409,6 @@ bool parse_command_line(int argc, char** argv, Config* config, int* command_star
 }
 
 bool validate_config(const Config& config, std::string* error) {
-  if (config.root_mode != "overlay" && config.root_mode != "tmpfs") {
-    *error = std::string(kRootMode) + " must be overlay or tmpfs";
-    return false;
-  }
   std::filesystem::path staging_root(config.staging_root);
   if (!staging_root.is_absolute() || staging_root.parent_path() == "/" || staging_root.filename().empty() ||
       config.staging_root != staging_root.lexically_normal().string()) {

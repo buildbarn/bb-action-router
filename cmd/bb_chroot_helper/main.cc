@@ -445,7 +445,7 @@ int main(int argc, char** argv) {
       die("staging-root must not be below a kept directory: " + root);
     }
   }
-  if (config.root_mode == "overlay" && chown(root.c_str(), config.host_uid, config.host_gid) != 0) {
+  if (config.root_mode == RootMode::Overlay && chown(root.c_str(), config.host_uid, config.host_gid) != 0) {
     die_errno("chown " + root);
   }
 
@@ -488,7 +488,7 @@ int main(int argc, char** argv) {
     die_errno("mount --make-rprivate /");
   }
 
-  if (config.root_mode == "tmpfs") {
+  if (config.root_mode == RootMode::Tmpfs) {
     // Each mount namespace gets its own root at the same mount point.
     if (mount("tmpfs", root.c_str(), "tmpfs", MS_NOSUID | MS_NODEV, "mode=0755") != 0) {
       die_errno("mount tmpfs " + root);
