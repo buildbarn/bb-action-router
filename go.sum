@@ -77,6 +77,8 @@ github.com/buildbarn/bb-remote-execution v0.0.0-20260930173749-1a3be9574872 h1:C
 github.com/buildbarn/bb-remote-execution v0.0.0-20260930173749-1a3be9574872/go.mod h1:qYXns7i5ym8F1m0IsjQbrgCCQvCZoYVhRBrY1WrNwT8=
 github.com/buildbarn/bb-storage v0.0.0-20261002053832-027bd797f1ec h1:kifxmoJy0H2K7ikvpsZ839cdQzdBMUQPBlGpfnuL730=
 github.com/buildbarn/bb-storage v0.0.0-20261002053832-027bd797f1ec/go.mod h1:/ZFOdYOnkvFBBocveCsp/bmdIq9fFXfc76SgXkqj1uc=
+github.com/buildbarn/bb-storage v0.0.0-20261005122227-0c18dd779b6b h1:G+BJD3eGKsfwxtOxSoC3qsThg1Je0vtDoEt14C3Cksw=
+github.com/buildbarn/bb-storage v0.0.0-20261005122227-0c18dd779b6b/go.mod h1:/ZFOdYOnkvFBBocveCsp/bmdIq9fFXfc76SgXkqj1uc=
 github.com/buildbarn/go-sha256tree v0.0.0-20250310211320-0f70f20e855b h1:IKUxixGBm9UxobU7c248z0BF0ojG19uoSLz8MFZM/KA=
 github.com/buildbarn/go-sha256tree v0.0.0-20250310211320-0f70f20e855b/go.mod h1:e7g3/yWApcg+PpDqd4eQEEV8pexQmfCgK3frP+1Wuvk=
 github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=

@@ -5,7 +5,7 @@ go 1.27.1
 require (
 	github.com/bazelbuild/remote-apis v0.0.0-20260922155111-adbf4a27c86f
 	github.com/buildbarn/bb-remote-execution v0.0.0-20260930173749-1a3be9574872
-	github.com/buildbarn/bb-storage v0.0.0-20261002053832-027bd797f1ec
+	github.com/buildbarn/bb-storage v0.0.0-20261005122227-0c18dd779b6b
 	github.com/golang/mock v1.6.0
 	github.com/google/go-containerregistry v0.22.1
 	github.com/patrickmn/go-cache v2.1.0+incompatible
@@ -16,11 +16,11 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
 	go.opentelemetry.io/otel/sdk/metric v1.47.0
+	golang.org/x/lint v0.0.0-20241112194109-818c5a804067
 	golang.org/x/sync v0.23.0
 	golang.org/x/sys v0.48.0
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
-	golang.org/x/lint v0.0.0-20241112194109-818c5a804067
 	mvdan.cc/gofumpt v0.12.0
 )
 
