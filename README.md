@@ -8,7 +8,7 @@ via the [ActionRouter](https://github.com/buildbarn/bb-remote-execution/blob/mai
 API, and a helper executable, which is responsible for running the action in the user-provided
 sandbox. At a high level, the action router modifies the incoming action so that it invokes
 the helper, with the docker image ref as an argument and, once the action reaches the runner,
-the helper emulates running the actions original command inside of the specified container.
+the helper emulates running the action’s original command inside of the specified container.
 
 # Caveats
 
