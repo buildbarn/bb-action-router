@@ -47,12 +47,9 @@ ParseResult Parse(const std::vector<std::string>& args) {
   return result;
 }
 
-// Parse a config file on its own, with no flags involved.
+// Parse a config file on its own, with no other flags involved.
 ParseResult ParseFile(const std::string& contents) {
-  ParseResult result;
-  result.command_start = -1;
-  result.ok = parse_config_file(WriteConfig(contents), &result.config, &result.error);
-  return result;
+  return Parse({"--config=" + WriteConfig(contents), "--", "true"});
 }
 
 // Every default the rest of the helper depends on.
@@ -86,10 +83,46 @@ TEST(Config, FlagsOnly) {
   EXPECT_TRUE(r.config.isolate_network);
 }
 
-TEST(Config, LastRepeatedFlagWins) {
-  ParseResult r = Parse({"--network-isolation", "--no-network-isolation", "--", "true"});
+// An explicitly empty --docker-image-ref selects inline mode, the same as
+// leaving it out.
+TEST(Config, EmptyDockerImageRef) {
+  ParseResult r = Parse({"--docker-image-ref", "", "--network-isolation", "--", "true"});
   ASSERT_TRUE(r.ok) << r.error;
-  EXPECT_FALSE(r.config.isolate_network);
+  EXPECT_EQ(r.command_start, 5);
+  EXPECT_EQ(r.config.docker_image_ref, "");
+  EXPECT_TRUE(r.config.isolate_network);
+}
+
+// CLI11 would take the next flag as the value of "--name=", so it's rejected.
+TEST(Config, EmptyValueAfterEqualsIsRejected) {
+  for (const std::string& flag : {"--docker-image-ref=", "--fetcher-socket=", "--keep-dirs="}) {
+    ParseResult r = Parse({flag, "--network-isolation", "--", "true"});
+    EXPECT_FALSE(r.ok) << flag;
+    EXPECT_NE(r.error.find("separate argument"), std::string::npos) << flag << ": " << r.error;
+  }
+}
+
+// Only the helper's own flags are checked, not the action's command.
+TEST(Config, EmptyValueAfterEqualsInCommandIsKept) {
+  ParseResult r = Parse({"--", "make", "--flag="});
+  ASSERT_TRUE(r.ok) << r.error;
+  EXPECT_EQ(r.command_start, 2);
+}
+
+// A single-valued flag given twice is ambiguous, so it's rejected rather than
+// resolved by picking one of the values.
+TEST(Config, RepeatedScalarFlagIsRejected) {
+  for (const std::vector<std::string>& flags : std::vector<std::vector<std::string>>{
+           {"--network-isolation", "--no-network-isolation"},
+           {"--fetcher-socket=/a.sock", "--fetcher-socket=/b.sock"},
+           {"--root-mode=overlay", "--root-mode=tmpfs"},
+           {"--build-user=1:1", "--build-user=2:2"},
+       }) {
+    std::vector<std::string> args = flags;
+    args.insert(args.end(), {"--", "true"});
+    ParseResult r = Parse(args);
+    EXPECT_FALSE(r.ok) << flags[0];
+  }
 }
 
 // Flag parsing stops at the "--" separator, so the action's own arguments are
@@ -109,7 +142,7 @@ TEST(Config, StopsAtCommand) {
 // An action whose own argv starts with something that looks like a helper flag
 // is passed through as the command.
 TEST(Config, CommandStartingWithFlagIsNotAFlag) {
-  std::string path = WriteConfig("[host-user]\nuid = 1\ngid = 1\n");
+  std::string path = WriteConfig("host-user = \"1:1\"\n");
   ParseResult r = Parse({"--", "--config=" + path, "--build-user=7:7"});
   ASSERT_TRUE(r.ok) << r.error;
   EXPECT_EQ(r.command_start, 2);
@@ -124,7 +157,7 @@ TEST(Config, CommandStartingWithFlagIsNotAFlag) {
 TEST(Config, MissingEndOfFlagsSeparator) {
   ParseResult r = Parse({"--build-user=7:7", "/bin/sh", "-c", "true"});
   EXPECT_FALSE(r.ok);
-  EXPECT_THAT(r.error, HasSubstr("unrecognized flag \"/bin/sh\""));
+  EXPECT_THAT(r.error, HasSubstr("missing \"--\" separator"));
 
   r = Parse({"--build-user=7:7"});
   EXPECT_FALSE(r.ok);
@@ -152,14 +185,8 @@ staging-root = "/tmp/bb_chroot_helper"
 network-isolation = true
 keep-dirs = ["nix", "toolchains"]
 etc-files = ["resolv.conf"]
-
-[build-user]
-uid = 1000
-gid = 1001
-
-[host-user]
-uid = 65534
-gid = 65534
+build-user = "1000:1001"
+host-user = "65534:65534"
 )");
   ASSERT_TRUE(r.ok) << r.error;
   EXPECT_EQ(r.config.fetcher_socket, "/var/fetcher/fetcher.sock");
@@ -192,6 +219,17 @@ TEST(Config, EmptyArrays) {
   EXPECT_EQ(r.config.etc_files, std::vector<std::string>({}));
 }
 
+// The parser can't tell a scalar from a single-element array, so a scalar
+// given for a list option is a one-element list, and a one-element array given
+// for a single-valued option is that value.
+TEST(Config, SingleValuesAndSingleElementArrays) {
+  ParseResult r = ParseFile("keep-dirs = \"nix\"\netc-files = \"hosts\"\nfetcher-socket = [\"/a.sock\"]\n");
+  ASSERT_TRUE(r.ok) << r.error;
+  EXPECT_EQ(r.config.keep_list, std::set<std::string>({"dev", "nix", "proc", "sys", "tmp"}));
+  EXPECT_EQ(r.config.etc_files, std::vector<std::string>({"hosts"}));
+  EXPECT_EQ(r.config.fetcher_socket, "/a.sock");
+}
+
 // Flags win over the config file regardless of where they sit relative to
 // --config.
 TEST(Config, FlagsOverrideConfigFile) {
@@ -200,14 +238,12 @@ fetcher-socket = "/from-config.sock"
 root-mode = "tmpfs"
 staging-root = "/var/from-config"
 network-isolation = true
-
-[build-user]
-uid = 1000
-gid = 1000
+build-user = "1000:1000"
+etc-files = ["hosts"]
 )");
-  ParseResult r =
-      Parse({"--build-user=5:6", "--config=" + path, "--fetcher-socket=/from-flag.sock",
-             "--staging-root=/tmp/from-flag", "--root-mode=overlay", "--no-network-isolation", "--", "true"});
+  ParseResult r = Parse({"--build-user=5:6", "--config=" + path, "--fetcher-socket=/from-flag.sock",
+                         "--staging-root=/tmp/from-flag", "--root-mode=overlay", "--no-network-isolation",
+                         "--etc-files=resolv.conf,hostname", "--", "true"});
   ASSERT_TRUE(r.ok) << r.error;
   EXPECT_EQ(r.config.build_uid, 5);
   EXPECT_EQ(r.config.build_gid, 6);
@@ -215,6 +251,8 @@ gid = 1000
   EXPECT_EQ(r.config.staging_root, "/tmp/from-flag");
   EXPECT_EQ(r.config.root_mode, RootMode::Overlay);
   EXPECT_FALSE(r.config.isolate_network);
+  // A list given as a flag replaces the file's list rather than merging with it.
+  EXPECT_EQ(r.config.etc_files, std::vector<std::string>({"resolv.conf", "hostname"}));
 
   // Settings the flags don't mention still come from the file.
   r = Parse({"--config=" + path, "--", "true"});
@@ -243,56 +281,59 @@ INSTANTIATE_TEST_SUITE_P(
     Config, ConfigFileError,
     ::testing::Values(
         // Unknown and misspelled keys are fatal rather than ignored.
-        ConfigFileErrorCase{"buildd-user = 1\n", "unknown key \"buildd-user\""},
-        ConfigFileErrorCase{"[build-user]\nuid = 0\ngid = 0\nname = \"root\"\n", "unknown key \"build-user.name\""},
-        // The image ref is per-action and gets a pointed error of its own.
-        ConfigFileErrorCase{"docker-image-ref = \"busybox\"\n", "pass --docker-image-ref instead"},
-        // Type errors.
-        ConfigFileErrorCase{"root-mode = true\n", "root-mode must be a string"},
-        ConfigFileErrorCase{"fetcher-socket = 7\n", "fetcher-socket must be a string"},
-        ConfigFileErrorCase{"staging-root = 7\n", "staging-root must be a string"},
-        ConfigFileErrorCase{"network-isolation = \"true\"\n", "network-isolation must be true or false"},
-        ConfigFileErrorCase{"keep-dirs = \"nix\"\n", "keep-dirs must be an array of strings"},
-        ConfigFileErrorCase{"etc-files = [1]\n", "etc-files must be an array of strings"},
-        ConfigFileErrorCase{"build-user = 1000\n", "build-user must be a table with uid and gid keys"},
-        ConfigFileErrorCase{"[build-user]\nuid = \"1000\"\ngid = 0\n", "build-user.uid must be an integer"},
+        ConfigFileErrorCase{"buildd-user = \"1:1\"\n", "not able to parse buildd-user"},
+        // The old table form of the users is an unknown key too.
+        ConfigFileErrorCase{"[build-user]\nuid = 0\ngid = 0\n", "not able to parse build-user"},
+        // Flags that only make sense on the command line.
+        ConfigFileErrorCase{"docker-image-ref = \"busybox\"\n", "not allowed in a configuration file"},
+        ConfigFileErrorCase{"config = \"/other.toml\"\n", "not allowed in a configuration file"},
+        ConfigFileErrorCase{"root-mode = \"chroot\"\n", "chroot not in {overlay,tmpfs}"},
+        ConfigFileErrorCase{"network-isolation = \"maybe\"\n", "network-isolation"},
         // A half-specified user would silently fall back to id 0.
-        ConfigFileErrorCase{"[build-user]\nuid = 1000\n", "build-user.gid is required"},
-        ConfigFileErrorCase{"[host-user]\ngid = 1000\n", "host-user.uid is required"},
-        // Ids have to be plausible.
-        ConfigFileErrorCase{"[build-user]\nuid = -1\ngid = 0\n",
-                            "build-user.uid must be an integer between 0 and 999999999"},
-        ConfigFileErrorCase{"[build-user]\nuid = 1000000000\ngid = 0\n",
-                            "build-user.uid must be an integer between 0 and 999999999"},
+        ConfigFileErrorCase{"build-user = \"1000\"\n", "want UID:GID"},
+        ConfigFileErrorCase{"host-user = \":1000\"\n", "want UID:GID"},
+        ConfigFileErrorCase{"build-user = \"1000000000:0\"\n", "want UID:GID"},
         // Entries that are not a single path component either never match or
         // reach outside the directory they're resolved against.
-        ConfigFileErrorCase{"keep-dirs = [\"var/lib\"]\n", "keep-dirs entries must be a single path component"},
-        ConfigFileErrorCase{"keep-dirs = [\"..\"]\n", "keep-dirs entries must be a single path component"},
-        ConfigFileErrorCase{"keep-dirs = [\"\"]\n", "keep-dirs entries must be a single path component"},
-        ConfigFileErrorCase{"etc-files = [\"../shadow\"]\n", "etc-files entries must be a single path component"},
-        // Malformed TOML is reported by the parser itself.
-        ConfigFileErrorCase{"fetcher-socket =\n", "expected value, saw '\\n'"},
-        ConfigFileErrorCase{"fetcher-socket = unquoted\n", "could not determine value type"}));
+        ConfigFileErrorCase{"keep-dirs = [\"var/lib\"]\n", "single path component"},
+        ConfigFileErrorCase{"keep-dirs = [\"..\"]\n", "single path component"},
+        ConfigFileErrorCase{"etc-files = [\"../shadow\"]\n", "single path component"},
+        // A single-valued option given several values, either as an array
+        // or by repeating the key.
+        ConfigFileErrorCase{"fetcher-socket = [\"/a.sock\", \"/b.sock\"]\n", "--fetcher-socket: At most 1"},
+        ConfigFileErrorCase{"root-mode = [\"overlay\", \"tmpfs\"]\n", "--root-mode: At most 1"},
+        ConfigFileErrorCase{"network-isolation = [true, false]\n", "too many inputs for a flag"},
+        ConfigFileErrorCase{"build-user = [\"1:1\", \"2:2\"]\n", "--build-user: At most 1"},
+        ConfigFileErrorCase{"staging-root = \"/var/a\"\nstaging-root = \"/var/b\"\n", "--staging-root: At most 1"}));
 
-// Errors point at the offending line.
-TEST(Config, ErrorNamesLine) {
-  ParseResult r = ParseFile("# comment\n\nfetcher-socket = \"/a\"\nbogus = 1\n");
-  EXPECT_FALSE(r.ok);
-  EXPECT_THAT(r.error, HasSubstr(":4:"));
+TEST(Config, InvalidUserFlag) {
+  for (const char* flag : {"--build-user=", "--host-user="}) {
+    for (const char* value : {"1000", "-1:0", "a:b", ":", "1000:"}) {
+      ParseResult r = Parse({std::string(flag) + value, "--", "true"});
+      EXPECT_FALSE(r.ok) << flag << value;
+      EXPECT_THAT(r.error, HasSubstr("want UID:GID"));
+    }
+  }
 }
 
-TEST(Config, InvalidBuildUserFlag) {
-  for (const char* value : {"1000", "-1:0", "a:b", ":", "1000:"}) {
-    ParseResult r = Parse({std::string("--build-user=") + value, "--", "true"});
-    EXPECT_FALSE(r.ok) << value;
-    EXPECT_THAT(r.error, HasSubstr("invalid --build-user"));
-  }
+// Every config file setting is also a flag.
+TEST(Config, ListFlags) {
+  ParseResult r =
+      Parse({"--keep-dirs=nix", "--keep-dirs=runner,toolchains", "--etc-files=hosts", "--host-user=5:6", "--", "true"});
+  ASSERT_TRUE(r.ok) << r.error;
+  EXPECT_EQ(r.config.keep_list, std::set<std::string>({"dev", "nix", "proc", "runner", "sys", "tmp", "toolchains"}));
+  EXPECT_EQ(r.config.etc_files, std::vector<std::string>({"hosts"}));
+  EXPECT_EQ(r.config.host_uid, 5);
+  EXPECT_EQ(r.config.host_gid, 6);
+
+  r = Parse({"--keep-dirs=../etc", "--", "true"});
+  EXPECT_FALSE(r.ok);
+  EXPECT_THAT(r.error, HasSubstr("single path component"));
 }
 
 TEST(Config, EmptyConfigFlag) {
   ParseResult r = Parse({"--config=", "--", "true"});
   EXPECT_FALSE(r.ok);
-  EXPECT_EQ(r.error, "empty --config path");
 }
 
 // A config file that isn't there is an error rather than a silent fallback to
@@ -300,13 +341,13 @@ TEST(Config, EmptyConfigFlag) {
 TEST(Config, MissingConfigFile) {
   ParseResult r = Parse({"--config=/nonexistent/bb_chroot_helper.toml", "--", "true"});
   EXPECT_FALSE(r.ok);
-  EXPECT_THAT(r.error, HasSubstr("cannot read config file /nonexistent/bb_chroot_helper.toml"));
+  EXPECT_THAT(r.error, HasSubstr("/nonexistent/bb_chroot_helper.toml was not readable"));
 }
 
 // The host user is the one privileges are dropped to, so id 0 there would leave
 // the helper running as real root.
 TEST(Config, HostUserRootIsRejected) {
-  for (const char* table : {"[host-user]\nuid = 0\ngid = 1000\n", "[host-user]\nuid = 1000\ngid = 0\n"}) {
+  for (const char* table : {"host-user = \"0:1000\"\n", "host-user = \"1000:0\"\n"}) {
     ParseResult r = ParseFile(table);
     ASSERT_TRUE(r.ok) << r.error;
     std::string error;
@@ -314,7 +355,7 @@ TEST(Config, HostUserRootIsRejected) {
     EXPECT_THAT(error, HasSubstr("host-user uid and gid must not be 0"));
   }
   // The build user is the in-namespace mapping, where id 0 is the default.
-  ParseResult r = ParseFile("[build-user]\nuid = 0\ngid = 0\n");
+  ParseResult r = ParseFile("build-user = \"0:0\"\n");
   ASSERT_TRUE(r.ok) << r.error;
   std::string error;
   EXPECT_TRUE(validate_config(r.config, &error)) << error;
@@ -322,16 +363,11 @@ TEST(Config, HostUserRootIsRejected) {
 
 TEST(Config, RootModeValidation) {
   for (const char* mode : {"overlay", "tmpfs", "", "unknown"}) {
+    ParseResult r = Parse({std::string("--root-mode=") + mode, "--", "true"});
     bool expected = std::string(mode) == "overlay" || std::string(mode) == "tmpfs";
-    ParseResult flag = Parse({std::string("--root-mode=") + mode, "--", "true"});
-    ParseResult file = ParseFile(std::string("root-mode = \"") + mode + "\"\n");
-    for (const auto& r : {flag, file}) {
-      EXPECT_EQ(r.ok, expected) << mode;
-      if (expected) {
-        EXPECT_EQ(r.config.root_mode, std::string(mode) == "overlay" ? RootMode::Overlay : RootMode::Tmpfs);
-      } else {
-        EXPECT_THAT(r.error, HasSubstr("root-mode must be overlay or tmpfs"));
-      }
+    EXPECT_EQ(r.ok, expected) << mode << ": " << r.error;
+    if (expected) {
+      EXPECT_EQ(r.config.root_mode, std::string(mode) == "overlay" ? RootMode::Overlay : RootMode::Tmpfs);
     }
   }
 }
@@ -346,13 +382,13 @@ TEST(Config, InvalidStagingRootIsRejected) {
   }
 }
 
-// The usage message is generated from the flag table, so check that every flag
-// still shows up in it.
+// The usage message is generated from the option table, so check that every
+// option still shows up in it.
 TEST(Config, UsageMentionsEveryFlag) {
   std::string text = usage();
   for (const char* flag :
-       {"--config=PATH", "--docker-image-ref=REF", "--fetcher-socket=PATH", "--staging-root=PATH", "--root-mode=MODE",
-        "--build-user=UID:GID", "--network-isolation]", "--no-network-isolation]"}) {
+       {"--config", "--docker-image-ref", "--fetcher-socket", "--staging-root", "--root-mode", "--build-user",
+        "--host-user", "--network-isolation", "--no-network-isolation", "--keep-dirs", "--etc-files"}) {
     EXPECT_THAT(text, HasSubstr(flag));
   }
   EXPECT_THAT(text, HasSubstr("-- <command> [args...]"));

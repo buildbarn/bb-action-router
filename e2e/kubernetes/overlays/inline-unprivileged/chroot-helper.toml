@@ -5,6 +5,4 @@ root-mode = "tmpfs"
 # inline mode, the merged image root itself.
 keep-dirs = ["runner"]
 
-[build-user]
-uid = 0
-gid = 0
+build-user = "0:0"

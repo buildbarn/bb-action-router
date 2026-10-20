@@ -10,15 +10,14 @@ enum class RootMode { Overlay, Tmpfs };
 //
 // Fields start out at the built-in defaults, are then overridden by the config
 // file (--config=PATH, when given) and finally by the remaining command line
-// flags. That way a deployment can keep its static settings in one file while
-// the action router only has to template the per-action ones onto the command
-// line.
+// flags. Every setting is available in both places under the same name, so a
+// deployment can keep its static settings in one file while the action router
+// only has to template the per-action ones onto the command line.
 struct Config {
   // Reference of the image to acquire from the fetcher. An empty value selects
   // inline mode, where the action's merged input root is the image root.
   //
-  // Only ever set from --docker-image-ref: it is per-action, so it has no
-  // config file equivalent.
+  // The one setting that can't come from the config file, as it's per-action.
   std::string docker_image_ref;
 
   // Path of the bb_docker_root_fetcher socket. Unused in inline mode.
@@ -47,7 +46,7 @@ struct Config {
 
   // Top-level directories of / that are bind-mounted into the action's root.
   // The built-in entries are the ones the container runtime mounts; keep-dirs
-  // in the config file are added to them.
+  // are added to them.
   //
   // A deployment has to add the top-level directory that holds the worker's
   // build directory (the action's working directory lives in there), since
@@ -55,30 +54,22 @@ struct Config {
   std::set<std::string> keep_list = {"proc", "sys", "dev", "tmp"};
 
   // Host /etc files bind-mounted into the image's /etc, so that the action sees
-  // the host's version. DNS resolution depends on this. etc-files in the config
-  // file replace this list.
+  // the host's version. DNS resolution depends on this. etc-files replaces this
+  // list.
   std::vector<std::string> etc_files = {"resolv.conf", "hostname", "hosts"};
 };
 
-// Summary of the accepted flags, for the usage message. Derived from the flag
-// table in config.cc, so it can't drift from what the parser actually accepts.
-// The config file keys are documented in README.md rather than here.
+// Usage message, generated from the same option table the parser uses.
 std::string usage();
 
-// Apply a TOML config file to *config.
+// Apply the command line to *config, including the TOML file named by
+// --config. Flags take precedence over the file regardless of their position.
+// The flags must be terminated with "--"; *command_start is set to the index
+// just past it, which is argc when there is no command.
 //
-// Every key is optional, but an unknown key, a wrong type and a partially
-// specified [build-user]/[host-user] are all errors: a typo in a setting that
-// decides where the sandbox boundary sits must not be silently ignored.
-//
-// Returns false and sets *error (prefixed with the file name and, where known,
-// the line number) on the first problem, leaving *config partially applied.
-bool parse_config_file(const std::string& path, Config* config, std::string* error);
-
-// Apply the command line to *config, loading the --config file first so that
-// flags take precedence over it. The flags must be terminated with "--";
-// *command_start is set to the index just past it, which is argc when there is
-// no command.
+// An unknown option or config file key is an error rather than ignored: a typo
+// in a setting that decides where the sandbox boundary sits must not be silently
+// dropped.
 //
 // Returns false and sets *error if a flag or the config file is malformed.
 bool parse_command_line(int argc, char** argv, Config* config, int* command_start, std::string* error);

@@ -40,18 +40,22 @@ The bind mounts are cleaned up by the kernel when the helper's mount namespace e
 The helper is invoked as `bb_chroot_helper [flags...] -- <command> [args...]`. The `--` is mandatory, so that the
 client-controlled command can't be read as helper flags.
 
-Settings come from three places, each overriding the previous one: the built-in defaults, the config file named by
-`--config=PATH`, and the remaining flags.
+Settings come from three places, each overriding the previous one: the built-in defaults, the TOML config file named by
+`--config=PATH`, and the remaining flags. A flag overrides the file regardless of where it appears relative to
+`--config`. `bb_chroot_helper --` with no command prints the full list of options.
+
+Every option is available in both places under the same name: `--name=VALUE` on the command line is `name = VALUE` in
+the config file. List options take a comma separated or repeated flag (`--keep-dirs=runner,nix`) or a TOML array, and a
+list given as a flag replaces the file's list. There are two exceptions: `--config` itself, and `--docker-image-ref`,
+which selects sideloaded mode (an empty or absent value means inline mode) and is per-action, so it's rejected in the
+config file.
+
+An empty value must be passed as a separate argument (`--docker-image-ref ""`). The `--name=` form is rejected, because
+the parser would otherwise take the next flag as the value.
 
 Only the per-action settings are meant to be flags, since those are what the action router templates from platform
-properties:
-
- - `--docker-image-ref=REF` selects sideloaded mode (an empty or absent value means inline mode). It deliberately has no
-   config file equivalent,
- - `--network-isolation` / `--no-network-isolation`.
-
-Everything else belongs in the config file, which is TOML. A setting is named the same way as the flag it corresponds
-to, minus the leading dashes:
+properties: `--docker-image-ref` and `--network-isolation` / `--no-network-isolation`. The rest normally lives in the
+config file:
 
 ```toml
 # Path of the bb_docker_root_fetcher socket. Unused in inline mode.
@@ -78,22 +82,22 @@ keep-dirs = ["runner", "nix"]
 # host's version. Replaces the built-in list, which is what's shown here.
 etc-files = ["resolv.conf", "hostname", "hosts"]
 
-# uid/gid the action runs as inside the helper's user namespace. Must match the
+# UID:GID the action runs as inside the helper's user namespace. Must match the
 # build user in the image's /etc/passwd, which in sideloaded mode is written by
 # the docker root fetcher (its build_user must therefore agree with this).
-[build-user]
-uid = 0
-gid = 0
+build-user = "0:0"
 
-# Host-side uid/gid the helper setuid()s to before unsharing. Must be an id the
+# Host-side UID:GID the helper setuid()s to before unsharing. Must be an id the
 # runner container is allowed to switch to, and must not be 0.
-[host-user]
-uid = 1000
-gid = 1000
+host-user = "1000:1000"
 ```
 
-Every key is optional, but an unknown key, a wrong type, a partially specified `[build-user]`/`[host-user]` and a
-`--config` path that can't be read are all fatal.
+Every key is optional, but an unknown key, an invalid value and a `--config` path that can't be read are all fatal.
+The file is parsed by [CLI11](https://github.com/CLIUtils/CLI11), whose TOML support is a subset: values are read as
+text and checked by the option they're assigned to, so for instance `fetcher-socket = 7` is accepted as the path `7`.
+Likewise, a scalar and a one-element array are indistinguishable: `keep-dirs = "nix"` is the list `["nix"]`, and
+`fetcher-socket = ["/a.sock"]` is the path `/a.sock`. Giving a single-valued option more than one value, be it a
+longer array, a repeated key or a repeated flag, is an error.
 
 `keep-dirs` needs care: entries on the keep list are bind-mounted from the runner, so the runner's version of the
 directory stays visible and writable inside the sandbox.

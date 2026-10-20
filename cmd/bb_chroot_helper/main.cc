@@ -400,7 +400,7 @@ int main(int argc, char** argv) {
   }
 
   if (cmd_start >= argc) {
-    fprintf(stderr, "Usage: %s %s\n", argv[0], usage().c_str());
+    fprintf(stderr, "%s", usage().c_str());
     return 1;
   }
 
