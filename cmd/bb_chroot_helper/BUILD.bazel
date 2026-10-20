@@ -10,7 +10,7 @@ cc_library(
     srcs = ["config.cc"],
     hdrs = ["config.h"],
     copts = ["-std=c++17"],
-    deps = ["@tomlplusplus"],
+    deps = ["@cli11"],
 )
 
 cc_test(
