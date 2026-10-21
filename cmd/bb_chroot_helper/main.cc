@@ -1,7 +1,8 @@
 /*
  * bb_chroot_helper - run an action in a docker image root.
  *
- * Note: This is primarily tested by the integation test, which can currently only be invoked manually.
+ * Note: This is primarily tested by the integration tests in integration/, which have to be run manually with
+ * `bazel run //cmd/bb_chroot_helper/integration:run_integration_test`.
  */
 #include <fcntl.h>
 #include <grp.h>

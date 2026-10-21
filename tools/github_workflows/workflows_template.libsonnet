@@ -51,7 +51,7 @@
         ] + if std.get(platform, 'test', false) then [
           {
             name: '%s: test' % platform.name,
-            run: 'bazel test --test_output=errors $(bazel query \'kind(".*_test rule", //...)\')',
+            run: 'bazel test --test_output=errors $(bazel query \'kind(".*_test rule", //...)\') --test_tag_filters=-manual',
             'if': "matrix.host.platform_name == '%s'" % platform.name,
           },
         ] else []
