@@ -1,0 +1,81 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+load("@rules_img//img:image.bzl", "image_manifest")
+load("@rules_img//img:layer.bzl", "image_layer")
+load("@rules_img//img:load.bzl", "image_load")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+package(default_testonly = True)
+
+go_library(
+    name = "integration",
+    srcs = [
+        "fetcher.go",
+        "fixtures.go",
+        "helper.go",
+        "probes.go",
+    ],
+    importpath = "github.com/buildbarn/bb-action-router/cmd/bb_chroot_helper/integration",
+    visibility = ["//visibility:private"],
+)
+
+# Needs root and modifies the filesystem, so it only runs inside the image
+# below. Use :run_integration_test.
+go_test(
+    name = "integration_test",
+    srcs = [
+        "action_root_test.go",
+        "concurrency_test.go",
+        "inline_test.go",
+        "main_test.go",
+        "network_test.go",
+        "overlay_test.go",
+        "staging_test.go",
+    ],
+    embed = [":integration"],
+    pure = "on",
+    tags = ["manual"],
+)
+
+image_layer(
+    name = "integration_test_layer",
+    srcs = {
+        "/bin/bb_chroot_helper": "//cmd/bb_chroot_helper",
+        "/bin/bb_chroot_helper_integration_test": ":integration_test",
+    },
+    include_runfiles = False,
+)
+
+image_manifest(
+    name = "integration_test_image",
+    entrypoint = ["/bin/bb_chroot_helper_integration_test"],
+    layers = [":integration_test_layer"],
+    # Build for Linux on the host's architecture, so that the image can be run
+    # locally on non-Linux hosts.
+    platform = select({
+        "@platforms//cpu:arm64": "//build/platforms:linux_aarch64_musl",
+        "@platforms//cpu:x86_64": "//build/platforms:linux_x86_64_musl",
+    }),
+)
+
+image_load(
+    name = "integration_test_image_load",
+    image = ":integration_test_image",
+    tag = "bb_chroot_helper_integration_test:latest",
+)
+
+filegroup(
+    name = "integration_test_image_tarball",
+    srcs = [":integration_test_image_load"],
+    output_group = "tarball",
+)
+
+# Loads the image into a container runtime and runs the tests in it. Arguments
+# are passed to the test binary, e.g.:
+#   bazel run //cmd/bb_chroot_helper/integration:run_integration_test -- -test.run=TestInlineMode
+sh_binary(
+    name = "run_integration_test",
+    srcs = ["run_integration_test.sh"],
+    args = ["$(rootpath :integration_test_image_tarball)"],
+    data = [":integration_test_image_tarball"],
+    tags = ["manual"],
+)

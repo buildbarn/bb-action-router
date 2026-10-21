@@ -21,7 +21,7 @@
             {
                "if": "matrix.host.platform_name == 'linux_x86_64_musl'",
                "name": "linux_x86_64_musl: test",
-               "run": "bazel test --test_output=errors $(bazel query 'kind(\".*_test rule\", //...)')"
+               "run": "bazel test --test_output=errors $(bazel query 'kind(\".*_test rule\", //...)') --test_tag_filters=-manual"
             }
          ],
          "strategy": {
