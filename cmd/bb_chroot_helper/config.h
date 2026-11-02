@@ -4,8 +4,6 @@
 #include <string>
 #include <vector>
 
-enum class RootMode { Overlay, Tmpfs };
-
 // Settings for bb_chroot_helper.
 //
 // Fields start out at the built-in defaults, are then overridden by the config
@@ -23,11 +21,8 @@ struct Config {
   // Path of the bb_docker_root_fetcher socket. Unused in inline mode.
   std::string fetcher_socket = "/var/run/fetcher/fetcher.sock";
 
-  // overlay reuses the staging directory for sequential actions; tmpfs
-  // gives each action a private root and supports concurrent actions.
-  RootMode root_mode = RootMode::Overlay;
-
-  // Staging directory for the action root; must be dedicated to the helper.
+  // Staging directory holding the action roots, one numbered directory per
+  // concurrently running action; must be dedicated to the helper.
   std::string staging_root = "/var/action_root";
 
   // Whether to unshare the network namespace. This is per-action, but the

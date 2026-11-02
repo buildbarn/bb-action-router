@@ -10,6 +10,7 @@
 #include <poll.h>
 #include <sched.h>
 #include <signal.h>
+#include <sys/file.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
@@ -32,6 +33,7 @@
 #include <fstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "config.h"
 #include "mount.h"
@@ -198,6 +200,93 @@ static void assert_build_user_exists(const std::string& docker_root, int build_u
     die(passwd_path + " has no uid " + std::to_string(build_uid) + " gid " + std::to_string(build_gid) +
         " entry (written by the docker root fetcher in sideloaded mode, by merge_docker_root.build_user in inline "
         "mode)");
+  }
+}
+
+// Each action gets its own slot: a numbered directory below the staging root,
+// locked with flock() for as long as the helper runs. The kernel drops the lock
+// when the helper exits, however it exits, so slots are never leaked and there
+// are only ever as many as the most actions that ran at the same time.
+
+// Remove the mount points and symlinks a previous action left in a slot. These
+// are only ever empty directories, empty files and symlinks, so this never
+// recurses into directories or mounts.
+static bool clear_slot(const std::string& path) {
+  std::error_code ec;
+  auto it = fs::directory_iterator(path, ec);
+  if (ec) {
+    return false;
+  }
+  for (const auto& entry : it) {
+    if (!fs::remove(entry.path(), ec) || ec) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Lock and clear the slot at path. Returns the locked fd, or -1 if the slot is
+// in use by another action or can't be reused.
+static int try_acquire_slot(const std::string& path) {
+  int fd = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (fd < 0) {
+    return -1;
+  }
+  if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+    close(fd);
+    return -1;
+  }
+  if (!clear_slot(path)) {
+    // Skip the slot rather than fail, as every action picking it would fail
+    // the same way.
+    fprintf(stderr, "bb_chroot_helper: skipping slot %s, which could not be cleared\n", path.c_str());
+    close(fd);
+    return -1;
+  }
+  return fd;
+}
+
+// Lock a free slot below staging_root, creating a new one only if every
+// existing slot is in use. Returns the slot's path and sets *lock_fd to the fd
+// holding the lock, which has to stay open until the helper exits.
+//
+// Every directory in the staging root is a slot. New ones are named by their
+// index, but nothing depends on that.
+static std::string acquire_slot(const std::string& staging_root, int* lock_fd) {
+  std::vector<std::string> slots;
+  std::error_code ec;
+  auto it = fs::directory_iterator(staging_root, ec);
+  if (ec) {
+    die("iterate staging root " + staging_root + ": " + ec.message());
+  }
+  for (const auto& entry : it) {
+    slots.push_back(entry.path().filename().string());
+  }
+
+  // Start the scan at a different slot in each helper, so that actions
+  // starting together don't all contend for the same one.
+  size_t start = slots.empty() ? 0 : static_cast<size_t>(getpid()) % slots.size();
+  for (size_t i = 0; i < slots.size(); ++i) {
+    auto path = staging_root + "/" + slots[(start + i) % slots.size()];
+    *lock_fd = try_acquire_slot(path);
+    if (*lock_fd >= 0) {
+      return path;
+    }
+  }
+
+  // Every slot is in use. Slots are numbered from 0 and never removed, so
+  // starting at the number of entries skips past the existing ones. Helpers that get here at the same time can
+  // pick the same index, or lock each other's new slot; whoever loses moves on
+  // to the next index.
+  for (size_t next = slots.size();; ++next) {
+    auto path = staging_root + "/" + std::to_string(next);
+    if (mkdir(path.c_str(), 0755) != 0 && errno != EEXIST) {
+      die_errno("mkdir " + path);
+    }
+    *lock_fd = try_acquire_slot(path);
+    if (*lock_fd >= 0) {
+      return path;
+    }
   }
 }
 
@@ -429,7 +518,6 @@ int main(int argc, char** argv) {
   if (ec || staging_root.parent_path() == "/" || !fs::is_directory(staging_root)) {
     die("invalid staging root " + config.staging_root);
   }
-  auto root = staging_root.string();
   for (const auto& name : config.keep_list) {
     auto src = "/" + name;
     if (!fs::exists(src)) {
@@ -443,10 +531,16 @@ int main(int argc, char** argv) {
     // the staging root, without confusing siblings such as /var/a and /var/ab.
     if (std::mismatch(kept_root.begin(), kept_root.end(), staging_root.begin(), staging_root.end()).first ==
         kept_root.end()) {
-      die("staging-root must not be below a kept directory: " + root);
+      die("staging-root must not be below a kept directory: " + staging_root.string());
     }
   }
-  if (config.root_mode == RootMode::Overlay && chown(root.c_str(), config.host_uid, config.host_gid) != 0) {
+  // The lock is held until the helper exits. The fd is close-on-exec, so the
+  // action doesn't inherit it.
+  int slot_fd = -1;
+  auto root = acquire_slot(staging_root.string(), &slot_fd);
+  // The mount points are created below by the host user, from inside the user
+  // namespace.
+  if (fchown(slot_fd, config.host_uid, config.host_gid) != 0) {
     die_errno("chown " + root);
   }
 
@@ -489,24 +583,10 @@ int main(int argc, char** argv) {
     die_errno("mount --make-rprivate /");
   }
 
-  if (config.root_mode == RootMode::Tmpfs) {
-    // Each mount namespace gets its own root at the same mount point.
-    if (mount("tmpfs", root.c_str(), "tmpfs", MS_NOSUID | MS_NODEV, "mode=0755") != 0) {
-      die_errno("mount tmpfs " + root);
-    }
-  } else {
-    // Sequential actions reuse only the empty mount points and symlinks left
-    // by the previous action. Never recurse into directories or mounts.
-    for (const auto& entry : fs::directory_iterator(root)) {
-      if (!fs::remove(entry.path(), ec) || ec) {
-        die("remove stale mount point " + entry.path().string() + ": " + ec.message());
-      }
-    }
-    // Give the staging directory its own mount so making it read-only does
-    // not change the mount containing the runner or image cache.
-    if (mount(root.c_str(), root.c_str(), nullptr, MS_BIND, nullptr) != 0) {
-      die_errno("mount --bind " + root);
-    }
+  // Give the slot its own mount, so that it can become the root and making it
+  // read-only doesn't change the mount containing the runner or image cache.
+  if (mount(root.c_str(), root.c_str(), nullptr, MS_BIND, nullptr) != 0) {
+    die_errno("mount --bind " + root);
   }
   mount_keep_dirs(config, root);
   bind_mount_etc_files(config, docker_root);
@@ -519,9 +599,30 @@ int main(int argc, char** argv) {
   if (getcwd(cwd, sizeof(cwd)) == nullptr) {
     die_errno("getcwd");
   }
-  if (chroot(root.c_str()) != 0) {
-    die_errno("chroot " + root);
+  // Switch to the slot with pivot_root() and detach the runner's root, rather
+  // than chroot(). An action running as root in the user namespace could escape
+  // a chroot, and would then see the runner's filesystem, including every other
+  // action's slot.
+  int old_root_fd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (old_root_fd < 0) {
+    die_errno("open /");
   }
+  if (chdir(root.c_str()) != 0) {
+    die_errno("chdir " + root);
+  }
+  // With the same directory for both arguments, the old root ends up mounted on
+  // top of the new one rather than below it, so the read-only slot doesn't need
+  // a directory to hold it.
+  if (syscall(SYS_pivot_root, ".", ".") != 0) {
+    die_errno("pivot_root " + root);
+  }
+  if (fchdir(old_root_fd) != 0) {
+    die_errno("fchdir old root");
+  }
+  if (umount2(".", MNT_DETACH) != 0) {
+    die_errno("detach old root");
+  }
+  close(old_root_fd);
   if (chdir(cwd) != 0) {
     die_errno(std::string("chdir ") + cwd);
   }
