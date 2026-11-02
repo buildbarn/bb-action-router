@@ -1,8 +1,11 @@
 package blobstore
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -10,12 +13,19 @@ import (
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	"github.com/buildbarn/bb-action-router/internal/mock"
+	"github.com/buildbarn/bb-action-router/pkg/ephemeralcas"
+	re_cas "github.com/buildbarn/bb-remote-execution/pkg/cas"
 	bb_blobstore "github.com/buildbarn/bb-storage/pkg/blobstore"
-	"github.com/buildbarn/bb-storage/pkg/blobstore/buffer"
-	"github.com/buildbarn/bb-storage/pkg/blobstore/slicing"
+	"github.com/buildbarn/bb-storage/pkg/blobstore/chunk"
+	bb_cas "github.com/buildbarn/bb-storage/pkg/cas"
 	"github.com/buildbarn/bb-storage/pkg/digest"
-	"github.com/golang/mock/gomock"
+	"github.com/buildbarn/bb-storage/pkg/filesystem"
 	"github.com/stretchr/testify/require"
+
+	"go.uber.org/mock/gomock"
+
+	"golang.org/x/sync/semaphore"
+
 	"google.golang.org/protobuf/proto"
 )
 
@@ -24,11 +34,11 @@ func TestCASUploadingLayerExtractor(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		ctx := context.Background()
 
-		mockCas := mock.NewMockBlobAccess(ctrl)
+		mockCas := mock.NewMockBlobAccess[*chunk.Chunk](ctrl)
 		df := digest.MustNewFunction("test", remoteexecution.DigestFunction_SHA256)
 		trackingCas := newFilesystemTrackingBlobAccess(mockCas, df)
 
-		extractor := NewCASUploadingLayerExtractor(trackingCas, df)
+		extractor := NewCASUploadingLayerExtractor(trackingCas, trackingCas, df)
 
 		// Expect Put calls: 3 files + 2 subdirectories (dir1, dir2) + 1 root directory
 		mockCas.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(6)
@@ -62,11 +72,11 @@ func TestCASUploadingLayerExtractor(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		ctx := context.Background()
 
-		mockCas := mock.NewMockBlobAccess(ctrl)
+		mockCas := mock.NewMockBlobAccess[*chunk.Chunk](ctrl)
 		df := digest.MustNewFunction("test", remoteexecution.DigestFunction_SHA256)
 		trackingCas := newFilesystemTrackingBlobAccess(mockCas, df)
 
-		extractor := NewCASUploadingLayerExtractor(trackingCas, df)
+		extractor := NewCASUploadingLayerExtractor(trackingCas, trackingCas, df)
 
 		// Expect Put calls: 1 file + 1 dir + 1 root directory
 		mockCas.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(3)
@@ -93,11 +103,11 @@ func TestCASUploadingLayerExtractor(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		ctx := context.Background()
 
-		mockCas := mock.NewMockBlobAccess(ctrl)
+		mockCas := mock.NewMockBlobAccess[*chunk.Chunk](ctrl)
 		df := digest.MustNewFunction("test", remoteexecution.DigestFunction_SHA256)
 		trackingCas := newFilesystemTrackingBlobAccess(mockCas, df)
 
-		extractor := NewCASUploadingLayerExtractor(trackingCas, df)
+		extractor := NewCASUploadingLayerExtractor(trackingCas, trackingCas, df)
 
 		// Expect Put calls: 2 files + 1 subdirectory + 1 root directory
 		// The whiteout file itself is not uploaded
@@ -127,11 +137,11 @@ func TestCASUploadingLayerExtractor(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		ctx := context.Background()
 
-		mockCas := mock.NewMockBlobAccess(ctrl)
+		mockCas := mock.NewMockBlobAccess[*chunk.Chunk](ctrl)
 		df := digest.MustNewFunction("test", remoteexecution.DigestFunction_SHA256)
 		trackingCas := newFilesystemTrackingBlobAccess(mockCas, df)
 
-		extractor := NewCASUploadingLayerExtractor(trackingCas, df)
+		extractor := NewCASUploadingLayerExtractor(trackingCas, trackingCas, df)
 
 		// Expect Put calls: 2 initial files + 1 new file after whiteout + 1 subdirectory + 1 root directory
 		// The whiteout file itself is not uploaded
@@ -164,11 +174,11 @@ func TestCASUploadingLayerExtractor(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		ctx := context.Background()
 
-		mockCas := mock.NewMockBlobAccess(ctrl)
+		mockCas := mock.NewMockBlobAccess[*chunk.Chunk](ctrl)
 		df := digest.MustNewFunction("test", remoteexecution.DigestFunction_SHA256)
 		trackingCas := newFilesystemTrackingBlobAccess(mockCas, df)
 
-		extractor := NewCASUploadingLayerExtractor(trackingCas, df)
+		extractor := NewCASUploadingLayerExtractor(trackingCas, trackingCas, df)
 
 		// Expect Put calls: 1 subdirectory + 1 root directory
 		mockCas.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(2)
@@ -194,11 +204,11 @@ func TestCASUploadingLayerExtractor(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		ctx := context.Background()
 
-		mockCas := mock.NewMockBlobAccess(ctrl)
+		mockCas := mock.NewMockBlobAccess[*chunk.Chunk](ctrl)
 		df := digest.MustNewFunction("test", remoteexecution.DigestFunction_SHA256)
 		trackingCas := newFilesystemTrackingBlobAccess(mockCas, df)
 
-		extractor := NewCASUploadingLayerExtractor(trackingCas, df)
+		extractor := NewCASUploadingLayerExtractor(trackingCas, trackingCas, df)
 
 		// Expect Put calls: 1 file + 2 dirs + 1 root directory
 		mockCas.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(4)
@@ -228,11 +238,11 @@ func TestCASUploadingLayerExtractor(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		ctx := context.Background()
 
-		mockCas := mock.NewMockBlobAccess(ctrl)
+		mockCas := mock.NewMockBlobAccess[*chunk.Chunk](ctrl)
 		df := digest.MustNewFunction("test", remoteexecution.DigestFunction_SHA256)
 		trackingCas := newFilesystemTrackingBlobAccess(mockCas, df)
 
-		extractor := NewCASUploadingLayerExtractor(trackingCas, df)
+		extractor := NewCASUploadingLayerExtractor(trackingCas, trackingCas, df)
 
 		// Expect Put calls: 1 file + 1 dir + 1 root directory
 		mockCas.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(3)
@@ -263,11 +273,11 @@ func TestCASUploadingLayerExtractor(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		ctx := context.Background()
 
-		mockCas := mock.NewMockBlobAccess(ctrl)
+		mockCas := mock.NewMockBlobAccess[*chunk.Chunk](ctrl)
 		df := digest.MustNewFunction("test", remoteexecution.DigestFunction_SHA256)
 		trackingCas := newFilesystemTrackingBlobAccess(mockCas, df)
 
-		extractor := NewCASUploadingLayerExtractor(trackingCas, df)
+		extractor := NewCASUploadingLayerExtractor(trackingCas, trackingCas, df)
 
 		// Expect Put calls: 1 file + 1 subdirectory + 1 root directory
 		mockCas.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(3)
@@ -294,11 +304,11 @@ func TestCASUploadingLayerExtractor(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		ctx := context.Background()
 
-		mockCas := mock.NewMockBlobAccess(ctrl)
+		mockCas := mock.NewMockBlobAccess[*chunk.Chunk](ctrl)
 		df := digest.MustNewFunction("test", remoteexecution.DigestFunction_SHA256)
 		trackingCas := newFilesystemTrackingBlobAccess(mockCas, df)
 
-		extractor := NewCASUploadingLayerExtractor(trackingCas, df)
+		extractor := NewCASUploadingLayerExtractor(trackingCas, trackingCas, df)
 
 		// Expect Put calls: 1 file + 1 subdirectory + 1 root directory
 		mockCas.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(3)
@@ -328,11 +338,11 @@ func TestCASUploadingLayerExtractor(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		ctx := context.Background()
 
-		mockCas := mock.NewMockBlobAccess(ctrl)
+		mockCas := mock.NewMockBlobAccess[*chunk.Chunk](ctrl)
 		df := digest.MustNewFunction("test", remoteexecution.DigestFunction_SHA256)
 		trackingCas := newFilesystemTrackingBlobAccess(mockCas, df)
 
-		extractor := NewCASUploadingLayerExtractor(trackingCas, df)
+		extractor := NewCASUploadingLayerExtractor(trackingCas, trackingCas, df)
 
 		require.NoError(t, extractor.OnDirectorySeen(ctx, "subdir"))
 		require.NoError(t, extractor.OnLinkSeen(ctx, "subdir/dangling", "nonexistent/target"))
@@ -363,14 +373,12 @@ func TestUploadDirStateSortedEntries(t *testing.T) {
 
 	for _, reverse := range []bool{false, true} {
 		t.Run(fmt.Sprintf("reverse=%t", reverse), func(t *testing.T) {
-			mockCas := mock.NewMockBlobAccess(gomock.NewController(t))
-			mockCas.EXPECT().Put(ctx, emptyDigest, gomock.Any()).DoAndReturn(func(_ context.Context, _ digest.Digest, b buffer.Buffer) error {
-				b.Discard()
+			mockCas := mock.NewMockBlobAccess[*chunk.Chunk](gomock.NewController(t))
+			mockCas.EXPECT().Put(ctx, emptyDigest, gomock.Any()).DoAndReturn(func(_ context.Context, _ digest.Digest, b *chunk.Chunk) error {
 				return nil
 			}).Times(len(names))
-			mockCas.EXPECT().Put(ctx, expectedDigest, gomock.Any()).DoAndReturn(func(_ context.Context, _ digest.Digest, b buffer.Buffer) error {
-				got, err := b.ToByteSlice(10000)
-				require.NoError(t, err)
+			mockCas.EXPECT().Put(ctx, expectedDigest, gomock.Any()).DoAndReturn(func(_ context.Context, _ digest.Digest, b *chunk.Chunk) error {
+				got := b.GetBytes()
 				require.Equal(t, data, got)
 				return nil
 			})
@@ -384,7 +392,7 @@ func TestUploadDirStateSortedEntries(t *testing.T) {
 				dir.subDirs[name] = newUploadDirState()
 				dir.symlinks[name+".link"] = &remoteexecution.SymlinkNode{Name: name + ".link", Target: name + ".txt"}
 			}
-			got, err := dir.upload(ctx, mockCas, df)
+			got, err := dir.upload(ctx, newFilesystemTrackingBlobAccess(mockCas, df), df)
 			require.NoError(t, err)
 			require.Equal(t, expectedDigest.GetProto(), got)
 		})
@@ -454,13 +462,13 @@ func TestSplitPath(t *testing.T) {
 
 // FilesystemTrackingBlobAccess wraps a BlobAccess and tracks filesystem structure.
 type filesystemTrackingBlobAccess struct {
-	inner          bb_blobstore.BlobAccess
+	inner          bb_blobstore.BlobAccess[*chunk.Chunk]
 	digestFunction digest.Function
 	digests        map[string]any
 	entries        []string
 }
 
-func newFilesystemTrackingBlobAccess(inner bb_blobstore.BlobAccess, df digest.Function) *filesystemTrackingBlobAccess {
+func newFilesystemTrackingBlobAccess(inner bb_blobstore.BlobAccess[*chunk.Chunk], df digest.Function) *filesystemTrackingBlobAccess {
 	return &filesystemTrackingBlobAccess{
 		inner:          inner,
 		digestFunction: df,
@@ -469,25 +477,31 @@ func newFilesystemTrackingBlobAccess(inner bb_blobstore.BlobAccess, df digest.Fu
 	}
 }
 
-func (f *filesystemTrackingBlobAccess) Get(ctx context.Context, digest digest.Digest) buffer.Buffer {
-	return f.inner.Get(ctx, digest)
+func (f *filesystemTrackingBlobAccess) UploadBlob(ctx context.Context, df digest.Function, blob filesystem.FileReader) (digest.Digest, error) {
+	defer blob.Close()
+	sizeBytes, err := blob.Len()
+	if err != nil {
+		return digest.BadDigest, err
+	}
+	data, err := io.ReadAll(io.NewSectionReader(blob, 0, sizeBytes))
+	if err != nil {
+		return digest.BadDigest, err
+	}
+	f.entries = append(f.entries, fmt.Sprintf("file:blob[%d bytes]", len(data)))
+	c := chunk.NewChunk(data)
+	d := c.ComputeDigest(df)
+	return d, f.inner.Put(ctx, d, c)
 }
 
-func (f *filesystemTrackingBlobAccess) Put(ctx context.Context, digest digest.Digest, b buffer.Buffer) error {
-	data, err := b.ToByteSlice(100 * 1024 * 1024)
+func (f *filesystemTrackingBlobAccess) PutProto(ctx context.Context, message proto.Message, df digest.Function) (digest.Digest, error) {
+	data, err := proto.Marshal(message)
 	if err != nil {
-		return f.inner.Put(ctx, digest, b)
+		return digest.BadDigest, err
 	}
-
-	var dir remoteexecution.Directory
-	if err := proto.Unmarshal(data, &dir); err == nil {
-		f.entries = append(f.entries, f.formatDirectoryEntry(&dir))
-	} else {
-		f.entries = append(f.entries, fmt.Sprintf("file:blob[%d bytes]", len(data)))
-	}
-
-	newBuffer := buffer.NewCASBufferFromByteSlice(digest, data, buffer.UserProvided)
-	return f.inner.Put(ctx, digest, newBuffer)
+	f.entries = append(f.entries, f.formatDirectoryEntry(message.(*remoteexecution.Directory)))
+	c := chunk.NewChunk(data)
+	d := c.ComputeDigest(df)
+	return d, f.inner.Put(ctx, d, c)
 }
 
 func (filesystemTrackingBlobAccess) formatDirectoryEntry(dir *remoteexecution.Directory) string {
@@ -536,14 +550,37 @@ func (f *filesystemTrackingBlobAccess) GetEntries() []string {
 	return f.entries
 }
 
-func (f *filesystemTrackingBlobAccess) FindMissing(ctx context.Context, digests digest.Set) (digest.Set, error) {
-	return f.inner.FindMissing(ctx, digests)
-}
-
-func (f *filesystemTrackingBlobAccess) GetCapabilities(ctx context.Context, instanceName digest.InstanceName) (*remoteexecution.ServerCapabilities, error) {
-	return f.inner.GetCapabilities(ctx, instanceName)
-}
-
-func (f *filesystemTrackingBlobAccess) GetFromComposite(ctx context.Context, parentDigest, childDigest digest.Digest, slicer slicing.BlobSlicer) buffer.Buffer {
-	return f.inner.GetFromComposite(ctx, parentDigest, childDigest, slicer)
+func TestCASUploadingLayerExtractorChunkedRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	df := digest.MustNewFunction("test", remoteexecution.DigestFunction_SHA256)
+	casInfo := ephemeralcas.New(t.TempDir()).CAS()
+	tempDir := t.TempDir()
+	t.Setenv("TMPDIR", tempDir)
+	readerPutter := bb_cas.NewReaderPutter(casInfo.ChunkStorage, casInfo.ChunkMappingStorage)
+	uploader, flush := re_cas.NewBatchingBlobUploader(casInfo.ChunkStorage, casInfo.ChunkMappingStorage, casInfo.CDCParametersFetcher, digest.KeyWithoutInstance, 100, semaphore.NewWeighted(2), readerPutter)
+	defer flush(ctx)
+	extractor := NewCASUploadingLayerExtractor(uploader, re_cas.NewProtoPutter(readerPutter, casInfo.CDCParametersFetcher), df)
+	data := bytes.Repeat([]byte("chunked image contents"), 100000)
+	require.NoError(t, extractor.OnFileSeen(ctx, "large-file", bytes.NewReader(data), 0o644))
+	root, err := extractor.UploadDirectories(ctx)
+	require.NoError(t, err)
+	require.NoError(t, flush(ctx))
+	entries, err := os.ReadDir(tempDir)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+	rootDigest, err := df.NewDigestFromProto(root)
+	require.NoError(t, err)
+	directory, err := bb_cas.NewMessageReader[remoteexecution.Directory](casInfo.ReadInfo, 1024).Read(ctx, rootDigest)
+	require.NoError(t, err)
+	fileDigest, err := df.NewDigestFromProto(directory.Files[0].Digest)
+	require.NoError(t, err)
+	mapping, err := casInfo.ChunkMappingStorage.Get(ctx, fileDigest)
+	require.NoError(t, err)
+	require.Greater(t, mapping.Length(), 1)
+	params, err := casInfo.CDCParametersFetcher.FetchCDCParameters(ctx, df.GetInstanceName())
+	require.NoError(t, err)
+	got, err := bb_cas.GetBytes(ctx, casInfo.ChunkBytesReader, casInfo.ChunkMappingFetcher, params, fileDigest, int64(len(data)))
+	require.NoError(t, err)
+	require.Equal(t, data, got)
+	require.NoError(t, NewDirTreeVerifier(casInfo, 1024).Verify(ctx, root, df))
 }

@@ -11,11 +11,16 @@ import (
 	"github.com/buildbarn/bb-action-router/pkg/docker"
 	"github.com/buildbarn/bb-action-router/pkg/fetcher"
 	pb "github.com/buildbarn/bb-action-router/pkg/proto/configuration/bb_docker_action_router"
+	re_cas "github.com/buildbarn/bb-remote-execution/pkg/cas"
 	bb_blobstore "github.com/buildbarn/bb-storage/pkg/blobstore"
+	blobstore_configuration "github.com/buildbarn/bb-storage/pkg/blobstore/configuration"
+	bb_cas "github.com/buildbarn/bb-storage/pkg/cas"
 	"github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/buildbarn/bb-storage/pkg/util"
 	"github.com/patrickmn/go-cache"
+
 	"golang.org/x/sync/singleflight"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -32,7 +37,8 @@ const (
 type mergeDockerRootOp struct {
 	imageRef *template.Template
 
-	cas             bb_blobstore.BlobAccess
+	cas             blobstore_configuration.ContentAddressableStorageInfo
+	protoPutter     re_cas.ProtoPutter
 	maxMessageSize  int
 	uploader        *ImageToCASUploader
 	refStore        *blobstore.ActionCacheRefStore
@@ -44,7 +50,7 @@ type mergeDockerRootOp struct {
 	sf    singleflight.Group
 }
 
-func newMergeDockerRootOp(config *pb.MergeDockerRoot, cas, actionCache bb_blobstore.BlobAccess, maxMessageSize int) (operation, error) {
+func newMergeDockerRootOp(config *pb.MergeDockerRoot, cas blobstore_configuration.ContentAddressableStorageInfo, actionCache bb_blobstore.BlobAccess[*remoteexecution.ActionResult], maxMessageSize int) (operation, error) {
 	if config.GetImageRef() == "" {
 		return nil, status.Error(codes.InvalidArgument, "merge_docker_root.image_ref must be set")
 	}
@@ -75,9 +81,10 @@ func newMergeDockerRootOp(config *pb.MergeDockerRoot, cas, actionCache bb_blobst
 	return &mergeDockerRootOp{
 		imageRef:        imageRef,
 		cas:             cas,
+		protoPutter:     re_cas.NewProtoPutter(bb_cas.NewReaderPutter(cas.ChunkStorage, cas.ChunkMappingStorage), cas.CDCParametersFetcher),
 		maxMessageSize:  maxMessageSize,
 		uploader:        NewImageToCasUploader(puller, cas, buildUser),
-		refStore:        blobstore.NewActionCacheRefStore(actionCache, maxMessageSize, buildUser),
+		refStore:        blobstore.NewActionCacheRefStore(actionCache, buildUser),
 		dirTreeVerifier: blobstore.NewDirTreeVerifier(cas, maxMessageSize),
 		cache:           cache.New(3*time.Hour, 1*time.Minute),
 	}, nil
@@ -119,7 +126,7 @@ func (o *mergeDockerRootOp) apply(s *pipelineState) error {
 		Digest: s.action.InputRootDigest,
 	})
 
-	mergedDirDigest, err := putDirectory(s.ctx, o.cas, mergedDir, s.digestFunction)
+	mergedDirDigest, err := putDirectory(s.ctx, o.protoPutter, mergedDir, s.digestFunction)
 	if err != nil {
 		return err
 	}

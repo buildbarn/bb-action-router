@@ -2,11 +2,10 @@ package ephemeralcas
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
-	"github.com/buildbarn/bb-storage/pkg/blobstore/buffer"
+	"github.com/buildbarn/bb-storage/pkg/blobstore/chunk"
 	"github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/stretchr/testify/require"
 )
@@ -30,12 +29,12 @@ func TestPutThenGet(t *testing.T) {
 	content := "hello, world"
 	d := digestOf(t, content)
 
-	err := ba.Put(ctx, d, buffer.NewCASBufferFromReader(d, readCloser(content), buffer.UserProvided))
+	err := ba.Put(ctx, d, chunk.NewChunk([]byte(content)))
 	require.NoError(t, err)
 
-	got, err := ba.Get(ctx, d).ToByteSlice(1024)
+	got, err := ba.Get(ctx, d)
 	require.NoError(t, err)
-	require.Equal(t, content, string(got))
+	require.Equal(t, content, string(got.GetBytes()))
 }
 
 func TestFindMissing(t *testing.T) {
@@ -45,22 +44,10 @@ func TestFindMissing(t *testing.T) {
 	stored := digestOf(t, "stored blob")
 	absent := digestOf(t, "never stored")
 
-	err := ba.Put(ctx, stored, buffer.NewCASBufferFromReader(stored, readCloser("stored blob"), buffer.UserProvided))
+	err := ba.Put(ctx, stored, chunk.NewChunk([]byte("stored blob")))
 	require.NoError(t, err)
 
 	missing, err := ba.FindMissing(ctx, digest.NewSetBuilder(2).Add(stored).Add(absent).Build())
 	require.NoError(t, err)
 	require.Equal(t, []digest.Digest{absent}, missing.Items())
 }
-
-// readCloser wraps a string in an io.ReadCloser, satisfying the type
-// expected by buffer.NewCASBufferFromReader.
-func readCloser(s string) *stringReadCloser {
-	return &stringReadCloser{Reader: strings.NewReader(s)}
-}
-
-type stringReadCloser struct {
-	*strings.Reader
-}
-
-func (stringReadCloser) Close() error { return nil }

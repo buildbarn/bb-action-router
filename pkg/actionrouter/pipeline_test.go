@@ -7,10 +7,15 @@ import (
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	"github.com/buildbarn/bb-action-router/internal/mock"
-	"github.com/buildbarn/bb-storage/pkg/blobstore/buffer"
+	"github.com/buildbarn/bb-action-router/pkg/ephemeralcas"
+	re_cas "github.com/buildbarn/bb-remote-execution/pkg/cas"
+	"github.com/buildbarn/bb-storage/pkg/blobstore/chunk"
+	bb_cas "github.com/buildbarn/bb-storage/pkg/cas"
 	"github.com/buildbarn/bb-storage/pkg/digest"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
+
+	"go.uber.org/mock/gomock"
+
 	"google.golang.org/protobuf/proto"
 )
 
@@ -38,10 +43,12 @@ func TestPutDirectorySortedEntries(t *testing.T) {
 	slices.Reverse(dir.Directories)
 	slices.Reverse(dir.Symlinks)
 
-	mockCas := mock.NewMockBlobAccess(gomock.NewController(t))
-	mockCas.EXPECT().Put(ctx, gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, d digest.Digest, b buffer.Buffer) error {
-		got, err := b.ToByteSlice(10000)
-		require.NoError(t, err)
+	mockCas := mock.NewMockBlobAccess[*chunk.Chunk](gomock.NewController(t))
+	casInfo := ephemeralcas.New(t.TempDir()).CAS()
+	casInfo.ChunkStorage = mockCas
+	mockCas.EXPECT().FindMissing(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, ds digest.Set) (digest.Set, error) { return ds, nil })
+	mockCas.EXPECT().Put(ctx, gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, d digest.Digest, b *chunk.Chunk) error {
+		got := b.GetBytes()
 		require.Equal(t, want, got)
 		gen := df.NewGenerator(int64(len(want)))
 		_, err = gen.Write(want)
@@ -49,6 +56,7 @@ func TestPutDirectorySortedEntries(t *testing.T) {
 		require.Equal(t, gen.Sum(), d)
 		return nil
 	})
-	_, err = putDirectory(ctx, mockCas, dir, df)
+	protoPutter := re_cas.NewProtoPutter(bb_cas.NewReaderPutter(casInfo.ChunkStorage, casInfo.ChunkMappingStorage), casInfo.CDCParametersFetcher)
+	_, err = putDirectory(ctx, protoPutter, dir, df)
 	require.NoError(t, err)
 }

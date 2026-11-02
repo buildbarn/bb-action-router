@@ -6,9 +6,9 @@ import (
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	bb_blobstore "github.com/buildbarn/bb-storage/pkg/blobstore"
-	"github.com/buildbarn/bb-storage/pkg/blobstore/buffer"
 	"github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/buildbarn/bb-storage/pkg/util"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -17,21 +17,18 @@ import (
 // ActionCacheRefStore allows us to store the mapping between
 // (docker image ref) -> (root dir digest) in the ActionCache.
 type ActionCacheRefStore struct {
-	actionCache             bb_blobstore.BlobAccess
-	maximumMessageSizeBytes int
-	buildUser               UnixUser
+	actionCache bb_blobstore.BlobAccess[*remoteexecution.ActionResult]
+	buildUser   UnixUser
 }
 
 // NewActionCacheRefStore creates a new ActionCacheRefStore that stores Docker image ref to digest mappings in the action cache.
 func NewActionCacheRefStore(
-	actionCache bb_blobstore.BlobAccess,
-	maximumMessageSizeBytes int,
+	actionCache bb_blobstore.BlobAccess[*remoteexecution.ActionResult],
 	buildUser UnixUser,
 ) *ActionCacheRefStore {
 	return &ActionCacheRefStore{
-		actionCache:             actionCache,
-		maximumMessageSizeBytes: maximumMessageSizeBytes,
-		buildUser:               buildUser,
+		actionCache: actionCache,
+		buildUser:   buildUser,
 	}
 }
 
@@ -77,12 +74,11 @@ func (rs *ActionCacheRefStore) Put(ctx context.Context, ref string, rootDir *rem
 		StderrDigest: rootDir,
 	}
 
-	// Create a buffer from the proto directly
 	// The action cache digest key is based on the Action, not the ActionResult
 	if err := rs.actionCache.Put(
 		ctx,
 		cacheKeyDigest,
-		buffer.NewProtoBufferFromProto(actionResult, buffer.UserProvided),
+		actionResult,
 	); err != nil {
 		return util.StatusWrap(err, "Failed to store action result")
 	}
@@ -98,18 +94,12 @@ func (rs *ActionCacheRefStore) Get(ctx context.Context, ref string, digestFuncti
 	}
 	slog.Debug("Looking up image", "image", ref, "key", cacheKeyDigest.String())
 
-	buf := rs.actionCache.Get(ctx, cacheKeyDigest)
-	cachedData, err := buf.ToByteSlice(rs.maximumMessageSizeBytes)
+	actionResult, err := rs.actionCache.Get(ctx, cacheKeyDigest)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return nil, status.Errorf(codes.NotFound, "Cache entry not found for ref %s", ref)
 		}
 		return nil, util.StatusWrap(err, "Failed to get action result")
-	}
-
-	var actionResult remoteexecution.ActionResult
-	if err := proto.Unmarshal(cachedData, &actionResult); err != nil {
-		return nil, util.StatusWrap(err, "Failed to unmarshal action result")
 	}
 
 	if actionResult.StderrDigest == nil {

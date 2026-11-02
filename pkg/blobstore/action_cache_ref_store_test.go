@@ -7,8 +7,9 @@ import (
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	"github.com/buildbarn/bb-action-router/internal/mock"
 	"github.com/buildbarn/bb-storage/pkg/digest"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
+
+	"go.uber.org/mock/gomock"
 )
 
 func TestActionCacheRefStore(t *testing.T) {
@@ -16,9 +17,9 @@ func TestActionCacheRefStore(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		ctx := context.Background()
 
-		actionCache := mock.NewMockBlobAccess(ctrl)
+		actionCache := mock.NewMockBlobAccess[*remoteexecution.ActionResult](ctrl)
 
-		store := NewActionCacheRefStore(actionCache, 1024, UnixUser{UID: 1000, GID: 1000, Name: "build"})
+		store := NewActionCacheRefStore(actionCache, UnixUser{UID: 1000, GID: 1000, Name: "build"})
 
 		df := digest.MustNewFunction("test", remoteexecution.DigestFunction_SHA256)
 

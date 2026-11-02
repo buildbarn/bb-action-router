@@ -6,6 +6,7 @@ import (
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	pb "github.com/buildbarn/bb-action-router/pkg/proto/configuration/bb_docker_action_router"
+	blobstore_configuration "github.com/buildbarn/bb-storage/pkg/blobstore/configuration"
 	"github.com/stretchr/testify/require"
 )
 
@@ -191,13 +192,13 @@ func TestNewPipelineRejectsBadTemplate(t *testing.T) {
 				{Kind: &pb.Operation_EditCommand{EditCommand: &pb.EditCommand{PrependArguments: []string{"{{.Nope"}}}},
 			},
 		},
-	}, nil, nil)
+	}, blobstore_configuration.ContentAddressableStorageInfo{}, nil)
 	require.Error(t, err)
 	require.True(t, strings.Contains(err.Error(), "template"))
 }
 
 func TestNewPipelineRequiresPipeline(t *testing.T) {
-	_, err := NewPipeline(&pb.ApplicationConfiguration{}, nil, nil)
+	_, err := NewPipeline(&pb.ApplicationConfiguration{}, blobstore_configuration.ContentAddressableStorageInfo{}, nil)
 	require.Error(t, err)
 }
 
@@ -243,7 +244,7 @@ func TestNewPipelineWrapsConditionalOperations(t *testing.T) {
 				{Kind: &pb.Operation_EditEnvironment{EditEnvironment: &pb.EditEnvironment{Set: map[string]string{"C": "d"}}}},
 			},
 		},
-	}, nil, nil)
+	}, blobstore_configuration.ContentAddressableStorageInfo{}, nil)
 	require.NoError(t, err)
 	require.IsType(t, &conditionalOp{}, p.operations[0])
 	require.IsType(t, &editEnvironmentOp{}, p.operations[1])
@@ -259,7 +260,7 @@ func TestNewPipelineRejectsBadOperationCondition(t *testing.T) {
 				},
 			},
 		},
-	}, nil, nil)
+	}, blobstore_configuration.ContentAddressableStorageInfo{}, nil)
 	require.Error(t, err)
 	require.True(t, strings.Contains(err.Error(), "template"))
 }

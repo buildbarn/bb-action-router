@@ -9,19 +9,21 @@ import (
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	"github.com/buildbarn/bb-action-router/pkg/blobstore"
 	"github.com/buildbarn/bb-action-router/pkg/docker"
-	re_blobstore "github.com/buildbarn/bb-remote-execution/pkg/blobstore"
-	bb_blobstore "github.com/buildbarn/bb-storage/pkg/blobstore"
+	re_cas "github.com/buildbarn/bb-remote-execution/pkg/cas"
+	blobstore_configuration "github.com/buildbarn/bb-storage/pkg/blobstore/configuration"
+	"github.com/buildbarn/bb-storage/pkg/cas"
 	bb_digest "github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/buildbarn/bb-storage/pkg/util"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	"golang.org/x/sync/semaphore"
 )
 
 // ImageToCASUploader pulls Docker images and uploads their contents to CAS
 type ImageToCASUploader struct {
 	puller                     *docker.ImagePuller
-	cas                        bb_blobstore.BlobAccess
+	cas                        blobstore_configuration.ContentAddressableStorageInfo
 	uploadConcurrencySemaphore *semaphore.Weighted
 	buildUser                  blobstore.UnixUser
 }
@@ -38,7 +40,7 @@ var imagePullDurationSeconds = promauto.NewHistogramVec(
 )
 
 // NewImageToCasUploader creates a new ImageToCASUploader.
-func NewImageToCasUploader(puller *docker.ImagePuller, cas bb_blobstore.BlobAccess, buildUser blobstore.UnixUser) *ImageToCASUploader {
+func NewImageToCasUploader(puller *docker.ImagePuller, cas blobstore_configuration.ContentAddressableStorageInfo, buildUser blobstore.UnixUser) *ImageToCASUploader {
 	return &ImageToCASUploader{
 		puller:                     puller,
 		cas:                        cas,
@@ -75,11 +77,13 @@ func (u *ImageToCASUploader) uploadImageToCASImpl(ctx context.Context, ref strin
 	// the concurrency limit across uploads.
 	// For a non-local CAS use batch size == RecommendedFindMissingDigestsCount.
 	batchSize := 100
-	batchedCAS, casFlusher := re_blobstore.NewBatchedStoreBlobAccess(
-		u.cas,
-		bb_digest.KeyWithoutInstance,
+	readerPutter := cas.NewReaderPutter(u.cas.ChunkStorage, u.cas.ChunkMappingStorage)
+	blobUploader, casFlusher := re_cas.NewBatchingBlobUploader(
+		u.cas.ChunkStorage, u.cas.ChunkMappingStorage, u.cas.CDCParametersFetcher,
+		u.cas.DigestKeyFormat,
 		batchSize,
 		u.uploadConcurrencySemaphore,
+		readerPutter,
 	)
 	// Flush batched uploads to CAS. We want this to always run as it ensures all temp files are deleted.
 	defer func() {
@@ -119,7 +123,7 @@ func (u *ImageToCASUploader) uploadImageToCASImpl(ctx context.Context, ref strin
 	// - probably would need to split this across mulitple Pods to get more
 	//   network bandwidth (both to storage and to Artifactory)
 	// - would need to handle whiteout and overwrites when merging multiple layers.
-	extractor := blobstore.NewCASUploadingLayerExtractor(batchedCAS, digestFunction)
+	extractor := blobstore.NewCASUploadingLayerExtractor(blobUploader, re_cas.NewProtoPutter(readerPutter, u.cas.CDCParametersFetcher), digestFunction)
 	visitor := blobstore.NewBuildUserInjectingVisitor(extractor, u.buildUser)
 	for i, layer := range layers {
 		slog.Debug("Processing image layer", "image", ref, "layer", i+1, "layers", len(layers))

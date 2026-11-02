@@ -18,7 +18,6 @@ import (
 	bb_grpc "github.com/buildbarn/bb-storage/pkg/grpc"
 	"github.com/buildbarn/bb-storage/pkg/program"
 	"github.com/buildbarn/bb-storage/pkg/util"
-	"github.com/buildbarn/bb-storage/pkg/zstd"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -47,12 +46,11 @@ func main() {
 			return util.StatusWrap(err, "Failed to apply global configuration options")
 		}
 
-		contentAddressableStorage, actionCache, err := blobstore_configuration.NewCASAndACBlobAccessFromConfiguration(
+		contentAddressableStorage, actionCache, err := blobstore_configuration.NewCASAndACFromConfiguration(
 			dependenciesGroup,
 			configuration.Blobstore,
 			grpcClientFactory,
 			int(configuration.MaximumMessageSizeBytes),
-			zstd.NewPoolFromConfiguration(nil),
 		)
 		if err != nil {
 			return util.StatusWrap(err, "Failed to create blobstore")

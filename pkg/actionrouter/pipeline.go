@@ -9,13 +9,15 @@ import (
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	pb "github.com/buildbarn/bb-action-router/pkg/proto/configuration/bb_docker_action_router"
+	re_cas "github.com/buildbarn/bb-remote-execution/pkg/cas"
 	bb_blobstore "github.com/buildbarn/bb-storage/pkg/blobstore"
-	"github.com/buildbarn/bb-storage/pkg/blobstore/buffer"
+	blobstore_configuration "github.com/buildbarn/bb-storage/pkg/blobstore/configuration"
+	bb_cas "github.com/buildbarn/bb-storage/pkg/cas"
 	"github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/buildbarn/bb-storage/pkg/util"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 )
 
 // BazelInputRootDirectoryName is the directory inside a merged input root where
@@ -64,7 +66,8 @@ func (o *conditionalOp) apply(s *pipelineState) error {
 
 // Pipeline applies an ordered list of operations to each action.
 type Pipeline struct {
-	cas                     bb_blobstore.BlobAccess
+	cas                     blobstore_configuration.ContentAddressableStorageInfo
+	protoPutter             re_cas.ProtoPutter
 	maximumMessageSizeBytes int
 	condition               *template.Template // nil => always run
 	operations              []operation
@@ -76,7 +79,7 @@ type Pipeline struct {
 type pipelineState struct {
 	ctx            context.Context
 	digestFunction digest.Function
-	cas            bb_blobstore.BlobAccess
+	cas            blobstore_configuration.ContentAddressableStorageInfo
 	maxMessageSize int
 
 	action          *remoteexecution.Action
@@ -210,7 +213,7 @@ func (p *Pipeline) HandleAction(ctx context.Context, action *remoteexecution.Act
 			return nil, err
 		}
 		sortEnvironment(command)
-		commandDigest, err := putCommand(ctx, p.cas, command, digestFunction)
+		commandDigest, err := putCommand(ctx, p.protoPutter, command, digestFunction)
 		if err != nil {
 			return nil, err
 		}
@@ -240,51 +243,39 @@ func sortEnvironment(command *remoteexecution.Command) {
 	})
 }
 
-func loadCommand(ctx context.Context, cas bb_blobstore.BlobAccess, maxMessageSize int, action *remoteexecution.Action, digestFunction digest.Function) (*remoteexecution.Command, error) {
+func loadCommand(ctx context.Context, cas blobstore_configuration.ContentAddressableStorageInfo, maxMessageSize int, action *remoteexecution.Action, digestFunction digest.Function) (*remoteexecution.Command, error) {
 	commandDigest, err := digestFunction.NewDigestFromProto(action.CommandDigest)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "Failed to load Command digest: %v", err)
 	}
-	m, err := cas.Get(ctx, commandDigest).ToProto(&remoteexecution.Command{}, maxMessageSize)
+	m, err := bb_cas.NewMessageReader[remoteexecution.Command](cas.ReadInfo, maxMessageSize).Read(ctx, commandDigest)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Failed to fetch Command: %v", err)
 	}
-	return m.(*remoteexecution.Command), nil
+	return m, nil
 }
 
-func putCommand(ctx context.Context, cas bb_blobstore.BlobAccess, command *remoteexecution.Command, digestFunction digest.Function) (digest.Digest, error) {
-	data, err := proto.Marshal(command)
+func putCommand(ctx context.Context, protoPutter re_cas.ProtoPutter, command *remoteexecution.Command, digestFunction digest.Function) (digest.Digest, error) {
+	commandDigest, err := protoPutter.PutProto(ctx, command, digestFunction)
 	if err != nil {
-		return digest.Digest{}, status.Errorf(codes.Internal, "Failed to marshal command: %v", err)
-	}
-	gen := digestFunction.NewGenerator(int64(len(data)))
-	if _, err := gen.Write(data); err != nil {
-		return digest.Digest{}, status.Errorf(codes.Internal, "Failed to generate digest for command: %v", err)
-	}
-	commandDigest := gen.Sum()
-	if err := cas.Put(ctx, commandDigest, buffer.NewCASBufferFromByteSlice(commandDigest, data, buffer.UserProvided)); err != nil {
-		return digest.Digest{}, status.Errorf(codes.Internal, "Failed to store Command to CAS: %v", err)
+		return digest.BadDigest, status.Errorf(codes.Internal, "Failed to store Command to CAS: %v", err)
 	}
 	return commandDigest, nil
 }
 
-func loadDirectory(ctx context.Context, cas bb_blobstore.BlobAccess, maxMessageSize int, digestProto *remoteexecution.Digest, digestFunction digest.Function) (*remoteexecution.Directory, error) {
+func loadDirectory(ctx context.Context, cas blobstore_configuration.ContentAddressableStorageInfo, maxMessageSize int, digestProto *remoteexecution.Digest, digestFunction digest.Function) (*remoteexecution.Directory, error) {
 	parsed, err := digestFunction.NewDigestFromProto(digestProto)
 	if err != nil {
 		return nil, util.StatusWrap(err, "Failed to parse directory digest")
 	}
-	data, err := cas.Get(ctx, parsed).ToByteSlice(maxMessageSize)
+	directory, err := bb_cas.NewMessageReader[remoteexecution.Directory](cas.ReadInfo, maxMessageSize).Read(ctx, parsed)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Failed to fetch directory %s from CAS: %v", digestProto, err)
-	}
-	directory := &remoteexecution.Directory{}
-	if err := proto.Unmarshal(data, directory); err != nil {
-		return nil, util.StatusWrap(err, "Failed to unmarshal directory")
 	}
 	return directory, nil
 }
 
-func putDirectory(ctx context.Context, cas bb_blobstore.BlobAccess, directory *remoteexecution.Directory, digestFunction digest.Function) (digest.Digest, error) {
+func putDirectory(ctx context.Context, protoPutter re_cas.ProtoPutter, directory *remoteexecution.Directory, digestFunction digest.Function) (digest.Digest, error) {
 	// Sort all entry lists, including those loaded from older cached image roots.
 	slices.SortFunc(directory.Files, func(a, b *remoteexecution.FileNode) int {
 		return cmp.Compare(a.Name, b.Name)
@@ -296,17 +287,9 @@ func putDirectory(ctx context.Context, cas bb_blobstore.BlobAccess, directory *r
 		return cmp.Compare(a.Name, b.Name)
 	})
 
-	data, err := proto.Marshal(directory)
+	directoryDigest, err := protoPutter.PutProto(ctx, directory, digestFunction)
 	if err != nil {
-		return digest.Digest{}, status.Errorf(codes.Internal, "Failed to marshal directory: %v", err)
-	}
-	gen := digestFunction.NewGenerator(int64(len(data)))
-	if _, err := gen.Write(data); err != nil {
-		return digest.Digest{}, status.Errorf(codes.Internal, "Failed to generate digest for directory: %v", err)
-	}
-	directoryDigest := gen.Sum()
-	if err := cas.Put(ctx, directoryDigest, buffer.NewCASBufferFromByteSlice(directoryDigest, data, buffer.UserProvided)); err != nil {
-		return digest.Digest{}, status.Errorf(codes.Internal, "Failed to store directory %s to CAS: %v", directoryDigest, err)
+		return digest.BadDigest, status.Errorf(codes.Internal, "Failed to store directory to CAS: %v", err)
 	}
 	return directoryDigest, nil
 }
@@ -314,13 +297,14 @@ func putDirectory(ctx context.Context, cas bb_blobstore.BlobAccess, directory *r
 // NewPipeline builds a Pipeline from configuration. Templates and regexes are
 // compiled up front, so a malformed config fails at startup rather than
 // per-action.
-func NewPipeline(config *pb.ApplicationConfiguration, cas, actionCache bb_blobstore.BlobAccess) (*Pipeline, error) {
+func NewPipeline(config *pb.ApplicationConfiguration, cas blobstore_configuration.ContentAddressableStorageInfo, actionCache bb_blobstore.BlobAccess[*remoteexecution.ActionResult]) (*Pipeline, error) {
 	pipelineConfig := config.GetPipeline()
 	if pipelineConfig == nil {
 		return nil, status.Error(codes.InvalidArgument, "pipeline must be set")
 	}
 	p := &Pipeline{
 		cas:                     cas,
+		protoPutter:             re_cas.NewProtoPutter(bb_cas.NewReaderPutter(cas.ChunkStorage, cas.ChunkMappingStorage), cas.CDCParametersFetcher),
 		maximumMessageSizeBytes: int(config.GetMaximumMessageSizeBytes()),
 	}
 	if c := pipelineConfig.GetCondition(); c != "" {
@@ -347,7 +331,7 @@ func NewPipeline(config *pb.ApplicationConfiguration, cas, actionCache bb_blobst
 	return p, nil
 }
 
-func buildOperation(config *pb.Operation, cas, actionCache bb_blobstore.BlobAccess, maxMessageSize int) (operation, error) {
+func buildOperation(config *pb.Operation, cas blobstore_configuration.ContentAddressableStorageInfo, actionCache bb_blobstore.BlobAccess[*remoteexecution.ActionResult], maxMessageSize int) (operation, error) {
 	switch kind := config.Kind.(type) {
 	case *pb.Operation_AssertPlatformProperty:
 		return newAssertPlatformPropertyOp(kind.AssertPlatformProperty)

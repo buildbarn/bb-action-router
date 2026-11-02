@@ -14,7 +14,10 @@
     },
   },
   blobstore: {
-    contentAddressableStorage: { grpc: { client: { address: 'storage:8981' } } },
+    contentAddressableStorage: {
+      chunkStorage: { grpc: { client: { address: 'storage:8981' } } },
+      chunkMappingStorage: { grpc: { client: { address: 'storage:8981' } } },
+    },
     actionCache: { grpc: { client: { address: 'storage:8981' } } },
   },
   pipeline: {
