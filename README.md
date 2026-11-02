@@ -35,17 +35,16 @@ Which approach to pick depends on the specifics of your deployment:
    as each worker pulls directly (and not via the CAS), but introduces less scheduling overhead and
    the cost of materializing the container contents is amortized across runners.
 
-Both modes can use either helper: `bb_chroot_helper` (unprivileged, user namespaces) or
-`bb_chroot_helper_privileged` (real `chroot`, needs CAP_SYS_ADMIN), except that the privileged
-helper is not supported in sideloaded mode (its chroot model can't safely reuse the fetcher's
-shared, cached roots). So for inline mode use `bb_docker_action_router` with either helper, and
-for sideloaded mode use `bb_docker_action_router`, `bb_chroot_helper` and `bb_docker_root_fetcher`.
+Both modes run the action through `bb_chroot_helper`, which uses user namespaces rather than a privileged
+container (see its [README](cmd/bb_chroot_helper/README.md)). It has to run as root in the runner container, and the
+host has to allow unprivileged user namespaces, which the helper creates after dropping to its host user.
+For inline mode use `bb_docker_action_router` and `bb_chroot_helper`, and for sideloaded mode
+additionally `bb_docker_root_fetcher`.
 
-The `bb-chroot-helper-installer` container installs both helper executables into `/bb` by default,
-or into a directory passed as its sole argument. It is intended to run as an init container against
-a shared volume, alongside `bb-runner-installer`. The runner mounts that volume read-only and the
-action router is configured to invoke either `/bb/bb_chroot_helper` or
-`/bb/bb_chroot_helper_privileged`.
+The `bb-chroot-helper-installer` container installs the helper into `/bb` by default, or into a
+directory passed as its sole argument. It is intended to run as an init container against a shared
+volume, alongside `bb-runner-installer`. The runner mounts that volume read-only and the action
+router is configured to invoke `/bb/bb_chroot_helper`.
 
 # Logging
 
