@@ -6,6 +6,7 @@ import (
 	"os/user"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // Probes run inside the action root. Errors are printed as "error: ..." with a
@@ -27,6 +28,28 @@ var probes = map[string]func(arg string) (string, error){
 			return "", err
 		}
 		return "mkdir succeeded", os.Remove(path)
+	},
+	// Escapes a chroot the classic way, by chrooting into a subdirectory
+	// while the working directory stays outside of it, then reads path.
+	// Needs CAP_SYS_CHROOT, i.e. an action running as root.
+	"escape-chroot": func(path string) (string, error) {
+		dir, err := os.MkdirTemp("/tmp", "escape")
+		if err != nil {
+			return "", err
+		}
+		if err := syscall.Chroot(dir); err != nil {
+			return "", err
+		}
+		for i := 0; i < 64; i++ {
+			if err := syscall.Chdir(".."); err != nil {
+				return "", err
+			}
+		}
+		if err := syscall.Chroot("."); err != nil {
+			return "", err
+		}
+		data, err := os.ReadFile(path)
+		return strings.TrimSpace(string(data)), err
 	},
 	"uid": func(string) (string, error) {
 		return strconv.Itoa(os.Getuid()), nil

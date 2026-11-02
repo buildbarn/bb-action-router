@@ -93,16 +93,7 @@ std::unique_ptr<CLI::App> make_app(Config* config) {
   app->add_option("--fetcher-socket", config->fetcher_socket, "Path of the bb_docker_root_fetcher socket")
       ->type_name("PATH")
       ->capture_default_str();
-  app->add_option_function<std::string>(
-         "--root-mode",
-         [config](const std::string& value) {
-           config->root_mode = value == "tmpfs" ? RootMode::Tmpfs : RootMode::Overlay;
-         },
-         "overlay reuses the staging directory for sequential actions; tmpfs supports concurrent actions")
-      ->type_name("MODE")
-      ->check(CLI::IsMember({"overlay", "tmpfs"}))
-      ->default_str(config->root_mode == RootMode::Tmpfs ? "tmpfs" : "overlay");
-  app->add_option("--staging-root", config->staging_root, "Dedicated staging directory for the action root")
+  app->add_option("--staging-root", config->staging_root, "Dedicated staging directory for the action roots")
       ->type_name("PATH")
       ->capture_default_str();
   // CLI11 forces TakeLast on flags, overriding the option defaults above.

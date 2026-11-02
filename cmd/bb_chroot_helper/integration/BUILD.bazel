@@ -28,7 +28,7 @@ go_test(
         "inline_test.go",
         "main_test.go",
         "network_test.go",
-        "overlay_test.go",
+        "slot_test.go",
         "staging_test.go",
     ],
     embed = [":integration"],

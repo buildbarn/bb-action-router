@@ -7,7 +7,7 @@ import (
 )
 
 func TestNetworkIsolation(t *testing.T) {
-	h := helper{image: "test-image", rootMode: "tmpfs", isolateNetwork: true}
+	h := helper{image: "test-image", isolateNetwork: true}
 	ifaces := strings.Split(h.probe(t, "interfaces"), "\n")
 	if !slices.Contains(ifaces, "lo") {
 		t.Errorf("no loopback interface, got %q", ifaces)
