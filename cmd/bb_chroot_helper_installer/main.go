@@ -11,9 +11,6 @@ import (
 //go:embed bb_chroot_helper
 var bbChrootHelper []byte
 
-//go:embed bb_chroot_helper_privileged
-var bbChrootHelperPrivileged []byte
-
 func install(installationPath string) error {
 	if err := os.MkdirAll(installationPath, 0o755); err != nil {
 		return fmt.Errorf("failed to create installation directory: %w", err)
@@ -23,17 +20,12 @@ func install(installationPath string) error {
 		return fmt.Errorf("failed to remove old installation marker: %w", err)
 	}
 
-	for name, contents := range map[string][]byte{
-		"bb_chroot_helper":            bbChrootHelper,
-		"bb_chroot_helper_privileged": bbChrootHelperPrivileged,
-	} {
-		path := filepath.Join(installationPath, name)
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to remove old %s: %w", name, err)
-		}
-		if err := os.WriteFile(path, contents, 0o555); err != nil {
-			return fmt.Errorf("failed to install %s: %w", name, err)
-		}
+	path := filepath.Join(installationPath, "bb_chroot_helper")
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove old bb_chroot_helper: %w", err)
+	}
+	if err := os.WriteFile(path, bbChrootHelper, 0o555); err != nil {
+		return fmt.Errorf("failed to install bb_chroot_helper: %w", err)
 	}
 
 	if err := os.WriteFile(installedPath, nil, 0o444); err != nil {

@@ -7,10 +7,6 @@ spec:
     spec:
       containers:
         - name: runner
-          # The userns helper doesn't need any privileges, so drop the base's
-          # privileged: true (which is there for the privileged helper).
-          securityContext:
-            privileged: false
           # bb_chroot_helper reads its static settings from here; the router
           # passes --config=/etc/bb_chroot_helper/config.toml.
           volumeMounts:

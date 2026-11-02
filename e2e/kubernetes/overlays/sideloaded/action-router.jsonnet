@@ -29,7 +29,7 @@
         property: 'ContainerBaseImage',
         regex: '^docker://.+@sha256:[0-9a-f]{64}$',
       } },
-      // Prepend the (unprivileged, userns) helper. It fetches the docker root
+      // Prepend the helper. It fetches the docker root
       // out-of-band from the fetcher sidecar over the shared /var/fetcher
       // socket. The static settings (that socket, the build user) live in the
       // config file mounted into the runner container from the
