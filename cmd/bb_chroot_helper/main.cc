@@ -315,8 +315,40 @@ static void bind_mount_etc_files(const Config& config, const std::string& docker
   }
 }
 
-// Bind the image's top-level entries into a private root.
-static void mount_image_root(const Config& config, const std::string& docker_root, const std::string& root) {
+// A bind mount into the action root, onto a mount point created by
+// populate_slot().
+struct BindMount {
+  std::string src;
+  std::string dst;
+  unsigned long flags;
+  bool read_only;
+};
+
+// Create the mount points for the keep directories and the image's top-level
+// entries in the slot, and copy the image's top-level symlinks into it,
+// returning the bind mounts to make once in the mount namespace.
+//
+// This runs as root before privileges are dropped, so that the slot is owned by
+// a user that isn't mapped into any action's user namespace. An action running
+// as root there could otherwise remount its root read-write and modify the
+// slot, which is the root of whichever action uses it next. As processes may
+// outlive the action that started them, that might happen while the next one
+// runs. Mount points don't need to be writable to be mounted on.
+static std::vector<BindMount> populate_slot(const Config& config, const std::string& docker_root,
+                                            const std::string& root) {
+  std::vector<BindMount> mounts;
+  for (const auto& name : config.keep_list) {
+    std::string src = "/" + name;
+    if (!fs::exists(src)) {
+      continue;
+    }
+    std::string dst = root + src;
+    if (mkdir(dst.c_str(), 0755) != 0) {
+      die_errno("mkdir " + dst);
+    }
+    mounts.push_back({src, dst, MS_REC, false});
+  }
+
   std::error_code ec;
   auto it = fs::directory_iterator(docker_root, ec);
   if (ec) {
@@ -347,31 +379,27 @@ static void mount_image_root(const Config& config, const std::string& docker_roo
       if (mkdir(dst.c_str(), 0755) != 0) {
         die_errno("mkdir " + dst);
       }
+      mounts.push_back({src, dst, MS_REC, true});
     } else if (fs::is_regular_file(status)) {
       int fd = open(dst.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0644);
       if (fd < 0) {
         die_errno("create mount point " + dst);
       }
       close(fd);
+      mounts.push_back({src, dst, 0, true});
     } else {
       die("unsupported top-level image entry: " + src);
     }
-    bind_mount_ro(src, dst, fs::is_directory(status) ? MS_REC : 0);
   }
+  return mounts;
 }
 
-static void mount_keep_dirs(const Config& config, const std::string& root) {
-  for (const auto& name : config.keep_list) {
-    std::string src = "/" + name;
-    if (!fs::exists(src)) {
-      continue;
-    }
-    std::string dst = root + src;
-    if (mkdir(dst.c_str(), 0755) != 0) {
-      die_errno("mkdir " + dst);
-    }
-    if (mount(src.c_str(), dst.c_str(), nullptr, MS_BIND | MS_REC, nullptr) != 0) {
-      die_errno("mount --bind " + dst);
+static void bind_mounts(const std::vector<BindMount>& mounts) {
+  for (const auto& m : mounts) {
+    if (m.read_only) {
+      bind_mount_ro(m.src, m.dst, m.flags);
+    } else if (mount(m.src.c_str(), m.dst.c_str(), nullptr, MS_BIND | m.flags, nullptr) != 0) {
+      die_errno("mount --bind " + m.dst);
     }
   }
 }
@@ -538,11 +566,12 @@ int main(int argc, char** argv) {
   // action doesn't inherit it.
   int slot_fd = -1;
   auto root = acquire_slot(staging_root.string(), &slot_fd);
-  // The mount points are created below by the host user, from inside the user
-  // namespace.
-  if (fchown(slot_fd, config.host_uid, config.host_gid) != 0) {
-    die_errno("chown " + root);
+  // The host user has to be able to traverse the slot to mount on it,
+  // whatever the umask.
+  if (fchmod(slot_fd, 0755) != 0) {
+    die_errno("chmod " + root);
   }
+  auto mounts = populate_slot(config, docker_root, root);
 
   // Drop to the host user, which is what the build user is mapped to inside the
   // user namespace created below.
@@ -588,9 +617,10 @@ int main(int argc, char** argv) {
   if (mount(root.c_str(), root.c_str(), nullptr, MS_BIND, nullptr) != 0) {
     die_errno("mount --bind " + root);
   }
-  mount_keep_dirs(config, root);
+  // The /etc files go first, so that the recursive bind mount of the image's
+  // /etc picks them up.
   bind_mount_etc_files(config, docker_root);
-  mount_image_root(config, docker_root, root);
+  bind_mounts(mounts);
   if (mark_mount_readonly(root.c_str()) != 0) {
     die_errno("mark readonly " + root);
   }

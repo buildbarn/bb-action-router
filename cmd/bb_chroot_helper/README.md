@@ -6,12 +6,18 @@ Each action's root is built in a slot: a numbered directory below the staging ro
 locked with `flock` while the helper runs. A helper uses the first free slot it finds and only creates a new one when
 every slot is in use, so there are only ever as many slots as the most actions that ran at the same time. The lock is
 released by the kernel when the helper exits, however it exits, so slots are never leaked. Every directory in the
-staging root is treated as a slot, whatever its name. Slots are directories on the
-runner's filesystem rather than tmpfs mounts, so that the helper also works in containers that aren't allowed to mount
-tmpfs, such as ones confined by the SELinux `container_t` type.
+staging root is treated as a slot, whatever its name. Slots are directories on the runner's filesystem rather than tmpfs
+mounts, so that the helper also works in containers that aren't allowed to mount tmpfs, such as ones confined by the
+SELinux `container_t` type.
 
 A slot only ever holds empty mount points and symlinks, which the next action to use it removes. A slot holding
 anything else, such as a non-empty directory, is skipped (with a warning) rather than cleared recursively.
+
+The helper creates the slot's contents as root, before dropping privileges, and only mounts on top of them from inside
+the user namespace. Root isn't mapped into the action's user namespace, so the slot can't be modified from there, even
+by an action that runs as root in it (the default `build-user`) and remounts its root read-write. That matters because
+processes started by an action can outlive it: the helper doesn't kill them, so they would otherwise be able to change
+the root of the next action to use the slot. Such processes lose their mounts when the next action clears the slot.
 
 # Keeping `/proc` available
 It may be surprising, but most processes will need `/proc/self/exe` to function correctly. This is for a variety of
@@ -36,19 +42,17 @@ When invoked, the helper does the following:
  - obtains the image root, from the fetcher in sideloaded mode,
  - creates the staging directory at `staging-root` if needed and locks a slot in it, creating one if all of them are in
    use,
+ - clears the slot and creates the mount points for the keep directories and the image's top-level entries in it,
  - unshares the user and mount namespaces, so that subsequent mounts are private to the action,
  - if needed, isolates the network by unsharing the network devices,
- - clears the slot and self-bind-mounts it,
- - bind-mounts the keep directories and image's top-level entries into it,
+ - self-bind-mounts the slot and bind-mounts the keep directories and image's top-level entries into it,
  - makes the slot the root with `pivot_root`, detaches the runner's root and runs the original action command line.
 
 The bind mounts are cleaned up by the kernel when the helper's mount namespace exits.
 
 `pivot_root` is used rather than `chroot`, since an action that runs as root inside the user namespace (the default
-`build-user`) could escape a `chroot` and would then see the runner's filesystem, including the slots of other actions.
-Those are writable by the host user every action runs as, so an action could, for instance, replace the top-level
-symlinks of another action's root. Once the runner's root is detached it is no longer reachable from the action's mount
-namespace.
+`build-user`) could escape a `chroot` and would then see the runner's filesystem, including the fetcher's socket and the
+slots of other actions. Once the runner's root is detached it is no longer reachable from the action's mount namespace.
 
 # Configuration
 

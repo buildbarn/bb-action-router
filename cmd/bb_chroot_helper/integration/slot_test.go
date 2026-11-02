@@ -98,3 +98,28 @@ func TestUnclearableSlotIsSkipped(t *testing.T) {
 		t.Errorf("unclearable slot was modified: %v", err)
 	}
 }
+
+// TestDaemonCannotModifyReusedSlot leaves a process running as root in the
+// user namespace behind in a slot, which tries to replace /lib in the root of
+// the next action to use the slot.
+func TestDaemonCannotModifyReusedSlot(t *testing.T) {
+	stagingRoot := filepath.Join(testDir, "daemon_root")
+	dir, err := os.MkdirTemp("/tmp", "tamper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	if err := os.Chmod(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+
+	helper{image: "test-image", buildUser: "0:0", stagingRoot: stagingRoot}.expectProbe(t, "tamperer started", "spawn-tamperer", dir)
+	helper{image: "test-image", stagingRoot: stagingRoot}.expectProbe(t, "/usr/lib", "await-tamperer", dir)
+	if got := slots(t, stagingRoot); !slices.Equal(got, []string{"0"}) {
+		t.Errorf("got slots %q, want both actions in the same slot", got)
+	}
+	result, err := os.ReadFile(filepath.Join(dir, "tamper_result"))
+	if err != nil || !strings.Contains(string(result), "permission denied") {
+		t.Errorf("got tamper result %q, %v, want permission denied", result, err)
+	}
+}
