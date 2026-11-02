@@ -16,6 +16,7 @@ go_library(
     ],
     importpath = "github.com/buildbarn/bb-action-router/cmd/bb_chroot_helper/integration",
     visibility = ["//visibility:private"],
+    deps = ["@org_golang_x_sys//unix"],
 )
 
 # Needs root and modifies the filesystem, so it only runs inside the image
