@@ -21,11 +21,12 @@ local common = import 'common.libsonnet';
   },
   maximumMessageSizeBytes: common.maximumMessageSizeBytes,
   global: common.global,
-  contentAddressableStorage: {
-    backend: common.blobstore.contentAddressableStorage,
+  contentAddressableStorageServer: {
+    contentAddressableStorage: common.blobstore.contentAddressableStorage,
     getAuthorizer: { allow: {} },
     putAuthorizer: { allow: {} },
     findMissingAuthorizer: { allow: {} },
+    maximumChunkCount: 100000,
   },
   actionCache: {
     backend: common.blobstore.actionCache,

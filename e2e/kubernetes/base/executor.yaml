@@ -24,7 +24,7 @@ spec:
             - { name: worker, mountPath: /runner }
       containers:
         - name: worker
-          image: ghcr.io/buildbarn/bb-worker:20260930T173749Z-1a3be95
+          image: ghcr.io/buildbarn/bb-worker:20261102T094740Z-c9ba98c
           imagePullPolicy: IfNotPresent
           args: ["/var/config/worker.jsonnet"]
           volumeMounts:

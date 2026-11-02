@@ -1,12 +1,14 @@
 module github.com/buildbarn/bb-action-router
 
-go 1.27.1
+go 1.27.3
+
+// rules_go does not support gomock package mode.
+replace go.uber.org/mock => go.uber.org/mock v0.4.0
 
 require (
 	github.com/bazelbuild/remote-apis v0.0.0-20260922155111-adbf4a27c86f
-	github.com/buildbarn/bb-remote-execution v0.0.0-20260930173749-1a3be9574872
-	github.com/buildbarn/bb-storage v0.0.0-20261005122227-0c18dd779b6b
-	github.com/golang/mock v1.6.0
+	github.com/buildbarn/bb-remote-execution v0.0.0-20261102094740-c9ba98cf5245
+	github.com/buildbarn/bb-storage v0.0.0-20261102091443-ca3d8b49a5af
 	github.com/google/go-containerregistry v0.22.1
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/prometheus/client_golang v1.24.1
@@ -16,6 +18,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
 	go.opentelemetry.io/otel/sdk/metric v1.47.0
+	go.uber.org/mock v0.6.0
 	golang.org/x/lint v0.0.0-20241112194109-818c5a804067
 	golang.org/x/sync v0.23.0
 	golang.org/x/sys v0.48.0
@@ -57,6 +60,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.1 // indirect
 	github.com/aws/smithy-go v1.28.2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/buildbarn/go-cdc v0.0.10 // indirect
 	github.com/buildbarn/go-sha256tree v0.0.0-20250310211320-0f70f20e855b // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -119,7 +123,6 @@ require (
 	google.golang.org/api v0.300.0 // indirect
 	google.golang.org/genproto v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
-	google.golang.org/genproto/googleapis/bytestream v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/grpc/security/advancedtls v1.0.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect

@@ -5,11 +5,14 @@ import (
 	"time"
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
-	bb_blobstore "github.com/buildbarn/bb-storage/pkg/blobstore"
+	blobstore_configuration "github.com/buildbarn/bb-storage/pkg/blobstore/configuration"
+	"github.com/buildbarn/bb-storage/pkg/cas"
+	"github.com/buildbarn/bb-storage/pkg/cas/reader"
 	"github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/buildbarn/bb-storage/pkg/util"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -27,15 +30,15 @@ var dirTreeVerificationDuration = promauto.NewHistogramVec(
 
 // DirTreeVerifier makes sure that all digests for a given dir hierarchy are present in the CAS.
 type DirTreeVerifier struct {
-	contentAddressableStorage bb_blobstore.BlobAccess
-	maximumMessageSizeBytes   int
+	contentAddressableStorage blobstore_configuration.ContentAddressableStorageInfo
+	directoryReader           reader.Reader[*remoteexecution.Directory]
 }
 
 // NewDirTreeVerifier returns a new DirTreeVerifier instance.
-func NewDirTreeVerifier(contentAddressableStorage bb_blobstore.BlobAccess, maximumMessageSizeBytes int) *DirTreeVerifier {
+func NewDirTreeVerifier(contentAddressableStorage blobstore_configuration.ContentAddressableStorageInfo, maximumMessageSizeBytes int) *DirTreeVerifier {
 	return &DirTreeVerifier{
 		contentAddressableStorage: contentAddressableStorage,
-		maximumMessageSizeBytes:   maximumMessageSizeBytes,
+		directoryReader:           cas.NewMessageReader[remoteexecution.Directory](contentAddressableStorage.ReadInfo, maximumMessageSizeBytes),
 	}
 }
 
@@ -62,11 +65,10 @@ func (v *DirTreeVerifier) verifyDirectory(ctx context.Context, dirRawDigest *rem
 		return util.StatusWrapf(err, "Failed to load directory digest")
 	}
 
-	m, err := v.contentAddressableStorage.Get(ctx, dirDigest).ToProto(&remoteexecution.Directory{}, v.maximumMessageSizeBytes)
+	directory, err := v.directoryReader.Read(ctx, dirDigest)
 	if err != nil {
 		return util.StatusWrapf(err, "Failed to get directory with digest %s", dirDigest)
 	}
-	directory := m.(*remoteexecution.Directory)
 
 	// TODO: the implementation here could be easily parallelized, but for
 	// maximum efficiency we should store a REv2.Tree instead of a directory
@@ -102,7 +104,11 @@ func (v *DirTreeVerifier) verifyFiles(ctx context.Context, files []*remoteexecut
 		digests.Add(fileDigest)
 	}
 
-	missingDigests, err := v.contentAddressableStorage.FindMissing(ctx, digests.Build())
+	params, err := v.contentAddressableStorage.CDCParametersFetcher.FetchCDCParameters(ctx, digestFunction.GetInstanceName())
+	if err != nil {
+		return util.StatusWrap(err, "Failed to fetch CDC parameters")
+	}
+	missingDigests, err := cas.FindMissing(ctx, v.contentAddressableStorage.ChunkStorage, v.contentAddressableStorage.ChunkMappingStorage, params, digests.Build())
 	if err != nil {
 		return util.StatusWrap(err, "Failed to check for missing files")
 	}

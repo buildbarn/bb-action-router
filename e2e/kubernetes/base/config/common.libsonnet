@@ -4,7 +4,8 @@
 
   blobstore: {
     contentAddressableStorage: {
-      grpc: { client: { address: $.storageAddress } },
+      chunkStorage: { grpc: { client: { address: $.storageAddress } } },
+      chunkMappingStorage: { grpc: { client: { address: $.storageAddress } } },
     },
     actionCache: {
       completenessChecking: {

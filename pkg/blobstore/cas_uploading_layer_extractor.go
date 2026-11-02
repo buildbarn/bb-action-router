@@ -5,35 +5,36 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
-	bb_blobstore "github.com/buildbarn/bb-storage/pkg/blobstore"
-	"github.com/buildbarn/bb-storage/pkg/blobstore/buffer"
+	"github.com/buildbarn/bb-remote-execution/pkg/cas"
 	bb_digest "github.com/buildbarn/bb-storage/pkg/digest"
+	"github.com/buildbarn/bb-storage/pkg/filesystem"
 	"github.com/buildbarn/bb-storage/pkg/util"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 )
 
 // CASUploadingLayerExtractor allows us to upload a directory structure to CAS at the
 // same time as we're traversing a Docker layer by implementing the LayerContentsVisitor
 // interface.
 type CASUploadingLayerExtractor struct {
-	cas            bb_blobstore.BlobAccess
+	blobUploader   cas.BlobUploader
+	protoPutter    cas.ProtoPutter
 	digestFunction bb_digest.Function
 	root           *uploadDirState
 }
 
 // NewCASUploadingLayerExtractor creates a new extractor that uploads Docker layer contents to CAS as it traverses them.
-func NewCASUploadingLayerExtractor(cas bb_blobstore.BlobAccess, df bb_digest.Function) *CASUploadingLayerExtractor {
+func NewCASUploadingLayerExtractor(blobUploader cas.BlobUploader, protoPutter cas.ProtoPutter, df bb_digest.Function) *CASUploadingLayerExtractor {
 	return &CASUploadingLayerExtractor{
-		cas:            cas,
+		blobUploader:   blobUploader,
+		protoPutter:    protoPutter,
 		digestFunction: df,
 		root:           newUploadDirState(),
 	}
@@ -81,29 +82,19 @@ func (e *CASUploadingLayerExtractor) OnFileSeen(ctx context.Context, path string
 		return util.StatusWrap(err, "Failed to create temp file")
 	}
 	// We don't close/remove the temp file here, instead it's done by
-	// the object returned from newSectionReadCloser after the upload
+	// the temporary file reader after the upload
 	// is completed.
 
-	digestGenerator := e.digestFunction.NewGenerator(math.MaxInt64)
-	sizeBytes, err := io.Copy(io.MultiWriter(digestGenerator, f), data)
+	sizeBytes, err := io.Copy(f, data)
 	if err != nil {
 		f.Close()
 		if rmErr := os.Remove(f.Name()); rmErr != nil {
 			slog.Error("Failed deleting temporary file", "path", f.Name(), "err", rmErr)
 		}
-		return util.StatusWrap(err, "Failed to compute file digest")
+		return util.StatusWrap(err, "Failed to write temporary file")
 	}
-	blobDigest := digestGenerator.Sum()
-
-	if err := e.cas.Put(
-		ctx,
-		blobDigest,
-		buffer.NewCASBufferFromReader(
-			blobDigest,
-			newSectionReadCloser(f, 0, sizeBytes),
-			buffer.UserProvided,
-		),
-	); err != nil {
+	blobDigest, err := e.blobUploader.UploadBlob(ctx, e.digestFunction, &tmpFileCloser{f: f, sizeBytes: sizeBytes})
+	if err != nil {
 		return util.StatusWrap(err, "Failed to upload file")
 	}
 
@@ -151,7 +142,7 @@ func (e *CASUploadingLayerExtractor) OnLayerComplete(ctx context.Context) error 
 // UploadDirectories uploads the accumulated filesystem state to the CAS
 // returning the digest of the root directory.
 func (e *CASUploadingLayerExtractor) UploadDirectories(ctx context.Context) (*remoteexecution.Digest, error) {
-	digest, err := e.root.upload(ctx, e.cas, e.digestFunction)
+	digest, err := e.root.upload(ctx, e.protoPutter, e.digestFunction)
 	if err != nil {
 		return nil, err
 	}
@@ -314,10 +305,10 @@ func assertNoDuplicateNames(reDir *remoteexecution.Directory) error {
 	return nil
 }
 
-func (u *uploadDirState) upload(ctx context.Context, cas bb_blobstore.BlobAccess, df bb_digest.Function) (*remoteexecution.Digest, error) {
+func (u *uploadDirState) upload(ctx context.Context, protoPutter cas.ProtoPutter, df bb_digest.Function) (*remoteexecution.Digest, error) {
 	dirNodes := []*remoteexecution.DirectoryNode{}
 	for name, chUplSt := range u.subDirs {
-		chDig, err := chUplSt.upload(ctx, cas, df)
+		chDig, err := chUplSt.upload(ctx, protoPutter, df)
 		if err != nil {
 			return nil, err
 		}
@@ -349,23 +340,8 @@ func (u *uploadDirState) upload(ctx context.Context, cas bb_blobstore.BlobAccess
 		return cmp.Compare(a.Name, b.Name)
 	})
 
-	data, err := proto.Marshal(directory)
+	dirDigest, err := protoPutter.PutProto(ctx, directory, df)
 	if err != nil {
-		return nil, util.StatusWrapWithCode(err, codes.Internal, "failed to marshall dir: %v")
-	}
-
-	digestGenerator := df.NewGenerator(int64(len(data)))
-	if _, err := digestGenerator.Write(data); err != nil {
-		panic(err)
-	}
-	dirDigest := digestGenerator.Sum()
-
-	// Upload the directory to CAS
-	if err := cas.Put(
-		ctx,
-		dirDigest,
-		buffer.NewCASBufferFromByteSlice(dirDigest, data, buffer.UserProvided),
-	); err != nil {
 		return nil, util.StatusWrap(err, "Failed to upload directory")
 	}
 	return dirDigest.GetProto(), nil
@@ -381,7 +357,8 @@ func toSlice[V any](m map[string]V) []V {
 }
 
 type tmpFileCloser struct {
-	f *os.File
+	f         *os.File
+	sizeBytes int64
 }
 
 func (c *tmpFileCloser) Close() error {
@@ -394,13 +371,24 @@ func (c *tmpFileCloser) Close() error {
 	return e2
 }
 
-// newSectionReadCloser adapts the temporary file to the API expected by BlobAccess.
-func newSectionReadCloser(f *os.File, off, n int64) io.ReadCloser {
-	return &struct {
-		io.SectionReader
-		io.Closer
-	}{
-		SectionReader: *io.NewSectionReader(f, off, n),
-		Closer:        &tmpFileCloser{f: f},
+func (c *tmpFileCloser) ReadAt(p []byte, off int64) (int, error) {
+	return c.f.ReadAt(p, off)
+}
+
+func (c *tmpFileCloser) Len() (int64, error) {
+	return c.sizeBytes, nil
+}
+
+func (c *tmpFileCloser) GetNextRegionOffset(offset int64, regionType filesystem.RegionType) (int64, error) {
+	if offset >= c.sizeBytes {
+		return 0, io.EOF
+	}
+	switch regionType {
+	case filesystem.Data:
+		return offset, nil
+	case filesystem.Hole:
+		return c.sizeBytes, nil
+	default:
+		panic("Unknown region type")
 	}
 }

@@ -23,7 +23,7 @@ import (
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	"github.com/buildbarn/bb-remote-execution/pkg/builder"
 	"github.com/buildbarn/bb-remote-execution/pkg/cas"
-	bb_blobstore "github.com/buildbarn/bb-storage/pkg/blobstore"
+	blobstore_configuration "github.com/buildbarn/bb-storage/pkg/blobstore/configuration"
 	bb_cas "github.com/buildbarn/bb-storage/pkg/cas"
 	bb_digest "github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/buildbarn/bb-storage/pkg/filesystem"
@@ -37,6 +37,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"golang.org/x/sync/semaphore"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -143,21 +144,18 @@ type rootFetcher struct {
 	directoryFetcher cas.DirectoryFetcher
 	fileFetcher      cas.FileFetcher
 	semaphore        *semaphore.Weighted
-	cas              bb_blobstore.BlobAccess
 }
 
-func (m *materializer) newRootFetcher(blobAccess bb_blobstore.BlobAccess) *rootFetcher {
+func (m *materializer) newRootFetcher(blobAccess blobstore_configuration.ContentAddressableStorageInfo) *rootFetcher {
 	return &rootFetcher{
-		directoryFetcher: cas.NewBlobAccessDirectoryFetcher(
-			blobAccess,
-			bb_cas.NewBlobAccessMessageReader[remoteexecution.Directory](blobAccess, m.maxMessageSize),
-			bb_cas.NewBlobAccessStreamReader(blobAccess),
-			m.maxMessageSize,
+		directoryFetcher: cas.NewCASDirectoryFetcher(
+			bb_cas.NewMessageReader[remoteexecution.Directory](blobAccess.ReadInfo, m.maxMessageSize),
+			bb_cas.NewStorageBackedStreamReader(blobAccess.ReadInfo),
+			int64(m.maxMessageSize),
 			0,
 		),
-		fileFetcher: cas.NewBlobAccessFileFetcher(blobAccess),
+		fileFetcher: cas.NewCASFileFetcher(blobAccess.ReadInfo),
 		semaphore:   semaphore.NewWeighted(int64(m.fetchParallelism)),
-		cas:         blobAccess,
 	}
 }
 
@@ -170,7 +168,7 @@ func (m *materializer) materialize(ctx context.Context, imageRef string) (string
 	}
 	defer os.RemoveAll(ephemeralCasDir)
 
-	blobAccess := ephemeralcas.New(ephemeralCasDir)
+	blobAccess := ephemeralcas.New(ephemeralCasDir).CAS()
 	uploader := actionrouter.NewImageToCasUploader(m.puller, blobAccess, m.buildUser)
 	rootDigest, err := uploader.UploadImageToCAS(ctx, imageRef, m.digestFunction)
 	if err != nil {
@@ -246,7 +244,7 @@ func (materializer) populateRoot(ctx context.Context, dirPath string, fetchCoord
 		fetchCoordinator.directoryFetcher,
 		fetchCoordinator.fileFetcher,
 		fetchCoordinator.semaphore,
-		fetchCoordinator.cas,
+		nil,
 	)
 	if err := buildDir.MergeDirectoryContents(ctx, util.DefaultErrorLogger, rootDigest, nil); err != nil {
 		return fmt.Errorf("materialize: %w", err)

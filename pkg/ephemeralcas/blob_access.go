@@ -8,9 +8,11 @@ import (
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	bb_blobstore "github.com/buildbarn/bb-storage/pkg/blobstore"
-	"github.com/buildbarn/bb-storage/pkg/blobstore/buffer"
-	"github.com/buildbarn/bb-storage/pkg/blobstore/slicing"
+	"github.com/buildbarn/bb-storage/pkg/blobstore/chunk"
+	blobstore_configuration "github.com/buildbarn/bb-storage/pkg/blobstore/configuration"
+	"github.com/buildbarn/bb-storage/pkg/cas"
 	"github.com/buildbarn/bb-storage/pkg/digest"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -30,41 +32,28 @@ func (b *DirectoryBackedBlobAccess) blobPath(d digest.Digest) string {
 	return filepath.Join(b.dir, d.GetKey(digest.KeyWithoutInstance))
 }
 
-// Put writes `buf` directly to its digest-named path in `dir`.
-func (b *DirectoryBackedBlobAccess) Put(ctx context.Context, d digest.Digest, buf buffer.Buffer) error {
-	path := b.blobPath(d)
-	f, err := os.Create(path)
-	if err != nil {
-		buf.Discard()
-		return err
-	}
-
-	writeErr := buf.IntoWriter(f)
-	closeErr := f.Close()
-	if writeErr == nil {
-		writeErr = closeErr
-	}
-	if writeErr != nil {
-		os.Remove(path)
-		return writeErr
-	}
-	return nil
+// Put writes a chunk to its digest-named path.
+func (b *DirectoryBackedBlobAccess) Put(ctx context.Context, d digest.Digest, value *chunk.Chunk) error {
+	return os.WriteFile(b.blobPath(d), value.GetBytes(), 0o600)
 }
 
-// Get returns a Buffer that streams from the on-disk blob.
-func (b *DirectoryBackedBlobAccess) Get(ctx context.Context, d digest.Digest) buffer.Buffer {
-	f, err := os.Open(b.blobPath(d))
+// Get reads a chunk from disk.
+func (b *DirectoryBackedBlobAccess) Get(ctx context.Context, d digest.Digest) (*chunk.Chunk, error) {
+	data, err := os.ReadFile(b.blobPath(d))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return buffer.NewBufferFromError(status.Errorf(codes.NotFound, "blob %s not found", d))
+			return nil, status.Errorf(codes.NotFound, "blob %s not found", d)
 		}
-		return buffer.NewBufferFromError(err)
+		return nil, err
 	}
-	return buffer.NewCASBufferFromReader(d, f, buffer.UserProvided)
+	c := chunk.NewChunk(data)
+	if c.ComputeDigest(d.GetDigestFunction()) != d {
+		return nil, status.Errorf(codes.DataLoss, "blob %s is corrupt", d)
+	}
+	return c, nil
 }
 
-// FindMissing reports digests that are not yet present on disk so that
-// BatchedStoreBlobAccess can skip duplicate uploads within a batch.
+// FindMissing reports chunks that are not yet present on disk.
 func (b *DirectoryBackedBlobAccess) FindMissing(ctx context.Context, digests digest.Set) (digest.Set, error) {
 	missing := digest.NewSetBuilder(digests.Length())
 	for _, d := range digests.Items() {
@@ -80,17 +69,69 @@ func (b *DirectoryBackedBlobAccess) FindMissing(ctx context.Context, digests dig
 	return missing.Build(), nil
 }
 
-// GetFromComposite is part of the BlobAccess interface but isn't exercised
-// by the docker root materialization path.
-func (DirectoryBackedBlobAccess) GetFromComposite(ctx context.Context, parentDigest, childDigest digest.Digest, slicer slicing.BlobSlicer) buffer.Buffer {
-	return buffer.NewBufferFromError(status.Error(codes.Unimplemented, "GetFromComposite not supported by ephemeralcas"))
+// GetCapabilities returns capabilities for the local CAS.
+func (b *DirectoryBackedBlobAccess) GetCapabilities(ctx context.Context, instanceName digest.InstanceName) (*remoteexecution.ServerCapabilities, error) {
+	params, _ := b.FetchCDCParameters(ctx, instanceName)
+	return &remoteexecution.ServerCapabilities{CacheCapabilities: &remoteexecution.CacheCapabilities{RepMaxCdcParams: params}}, nil
 }
 
-// GetCapabilities is part of the BlobAccess interface but isn't exercised
-// by the docker root materialization path.
-func (DirectoryBackedBlobAccess) GetCapabilities(ctx context.Context, instanceName digest.InstanceName) (*remoteexecution.ServerCapabilities, error) {
-	return nil, status.Error(codes.Unimplemented, "GetCapabilities not supported by ephemeralcas")
+// FetchCDCParameters returns the local CAS chunking parameters.
+func (DirectoryBackedBlobAccess) FetchCDCParameters(ctx context.Context, instanceName digest.InstanceName) (*remoteexecution.RepMaxCdcParams, error) {
+	return &remoteexecution.RepMaxCdcParams{MinChunkSizeBytes: 256 << 10, HorizonSizeBytes: 2 << 20}, nil
 }
 
-// Compile-time check that DirectoryBackedBlobAccess satisfies the interface.
-var _ bb_blobstore.BlobAccess = (*DirectoryBackedBlobAccess)(nil)
+// CAS returns the components for accessing the local CAS.
+func (b *DirectoryBackedBlobAccess) CAS() blobstore_configuration.ContentAddressableStorageInfo {
+	cms := &directoryBackedMappingStorage{DirectoryBackedBlobAccess: b}
+	return blobstore_configuration.ContentAddressableStorageInfo{
+		ReadInfo: cas.ReadInfo{
+			ChunkBytesReader:     cas.NewChunkBytesReader(b),
+			ChunkMappingFetcher:  bb_blobstore.NewBlobAccessMappingFetcher(cms),
+			CDCParametersFetcher: b,
+		},
+		ChunkStorage:        b,
+		ChunkMappingStorage: cms,
+		DigestKeyFormat:     digest.KeyWithoutInstance,
+	}
+}
+
+var _ bb_blobstore.BlobAccess[*chunk.Chunk] = (*DirectoryBackedBlobAccess)(nil)
+
+type directoryBackedMappingStorage struct {
+	*DirectoryBackedBlobAccess
+}
+
+func (b *directoryBackedMappingStorage) blobPath(d digest.Digest) string {
+	return b.DirectoryBackedBlobAccess.blobPath(d) + ".mapping"
+}
+
+func (b *directoryBackedMappingStorage) Get(ctx context.Context, d digest.Digest) (chunk.Mapping, error) {
+	data, err := os.ReadFile(b.blobPath(d))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return chunk.Mapping{}, status.Errorf(codes.NotFound, "chunk mapping %s not found", d)
+		}
+		return chunk.Mapping{}, err
+	}
+	return chunk.NewMappingFromCompactBinary(data, d.GetDigestFunction(), true)
+}
+
+func (b *directoryBackedMappingStorage) Put(ctx context.Context, d digest.Digest, value chunk.Mapping) error {
+	data, err := value.ToCompactBinary()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(b.blobPath(d), data, 0o600)
+}
+
+func (b *directoryBackedMappingStorage) FindMissing(ctx context.Context, digests digest.Set) (digest.Set, error) {
+	missing := digest.NewSetBuilder(digests.Length())
+	for _, d := range digests.Items() {
+		if _, err := os.Stat(b.blobPath(d)); os.IsNotExist(err) {
+			missing.Add(d)
+		} else if err != nil {
+			return digest.EmptySet, err
+		}
+	}
+	return missing.Build(), nil
+}
