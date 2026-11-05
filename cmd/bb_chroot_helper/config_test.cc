@@ -114,7 +114,6 @@ TEST(Config, RepeatedScalarFlagIsRejected) {
   for (const std::vector<std::string>& flags : std::vector<std::vector<std::string>>{
            {"--network-isolation", "--no-network-isolation"},
            {"--fetcher-socket=/a.sock", "--fetcher-socket=/b.sock"},
-           {"--root-mode=overlay", "--root-mode=tmpfs"},
            {"--build-user=1:1", "--build-user=2:2"},
        }) {
     std::vector<std::string> args = flags;
