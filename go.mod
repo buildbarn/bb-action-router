@@ -18,6 +18,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
 	go.opentelemetry.io/otel/sdk/metric v1.47.0
+	go.starlark.net v0.0.0-20261021141710-4f4267fb140d
 	go.uber.org/mock v0.6.0
 	golang.org/x/lint v0.0.0-20241112194109-818c5a804067
 	golang.org/x/sync v0.23.0
