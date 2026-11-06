@@ -68,6 +68,7 @@ message Operation {
     EditCommand edit_command = 4;
     EditEnvironment edit_environment = 5;
     MergeDockerRoot merge_docker_root = 6;
+    RunStarlark run_starlark = 8;
   }
 
   // Template gating this operation, with the same truthiness rules as
@@ -128,6 +129,52 @@ message EditCommand {
 message EditEnvironment {
   repeated string remove = 1;
   map<string, string> set = 2;
+}
+
+// RunStarlark runs a Starlark script against the action, giving imperative
+// control (if/for/variables) over the same action the other operations edit.
+// Unlike the proto operations above it does not use Go text/template: the
+// script computes any strings itself.
+//
+// The script must define a function `process(action)`; it is called once per
+// action, with `action` exposing the action natively:
+//   action.platform            dict of platform properties (str->str):
+//                                action.platform["OSFamily"]
+//                                action.platform["k"] = "v"
+//                                action.platform.pop("k")
+//                                "k" in action.platform
+//                                for k, v in action.platform.items(): ...
+//                              Edits are written back to the action after
+//                              process() returns. Setting a name replaces any
+//                              existing entries with that name (REv2 allows
+//                              duplicate names; the dict collapses them to
+//                              one).
+//   action.environment         dict of environment variables, same API.
+//   action.arguments           list of command arguments; read and assign:
+//                                action.arguments = ["/wrap", "--"] +
+//                                    action.arguments
+//   action.working_directory   command working directory (read + assign).
+//   action.invocation_id, .target_label, .action_mnemonic,
+//     .configuration_id, .correlated_invocations_id
+//                              read-only RequestMetadata accessors ("" when the
+//                              client didn't supply metadata).
+// To reject an action (e.g. enforce a pinned image digest) call the Starlark
+// builtin fail(msg); the action is rejected with InvalidArgument. Any other
+// runtime error (type error, missing key, ...) is treated as a bug in the
+// script and returned as Internal, not blamed on the action. Syntax errors are
+// caught when the configuration is loaded, so the router fails to start rather
+// than serving a broken script. Starlark has no regex support; use string
+// operations for validation.
+// The RequestMetadata accessors are stamp-style (see Operation docs).
+message RunStarlark {
+  // Starlark source. Exactly one of script or script_file must be set.
+  oneof source {
+    // Inline Starlark source defining `def process(action): ...`.
+    string script = 1;
+
+    // Path to a file containing the Starlark source, read once at startup.
+    string script_file = 2;
+  }
 }
 
 // MergeDockerRoot pulls the docker image referenced by `image_ref`, uploads

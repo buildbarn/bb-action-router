@@ -83,6 +83,7 @@ use_repo(
     "io_opentelemetry_go_otel_metric",
     "io_opentelemetry_go_otel_sdk",
     "io_opentelemetry_go_otel_sdk_metric",
+    "net_starlark_go",
     "org_golang_google_grpc",
     "org_golang_google_protobuf",
     "org_golang_x_lint",

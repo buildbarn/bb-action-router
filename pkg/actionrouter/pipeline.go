@@ -345,6 +345,8 @@ func buildOperation(config *pb.Operation, cas blobstore_configuration.ContentAdd
 		return newEditEnvironmentOp(kind.EditEnvironment)
 	case *pb.Operation_MergeDockerRoot:
 		return newMergeDockerRootOp(kind.MergeDockerRoot, cas, actionCache, maxMessageSize)
+	case *pb.Operation_RunStarlark:
+		return newRunStarlarkOp(kind.RunStarlark)
 	case nil:
 		return nil, status.Error(codes.InvalidArgument, "operation kind must be set")
 	default:
