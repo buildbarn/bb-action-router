@@ -1,20 +1,17 @@
 #!/usr/bin/env bash
 # Build + load the local images and bring up the e2e cluster in a given
-# action-router mode + helper combination.
+# action-router mode.
 #
-# Usage: up.sh [COMBO]   (default: inline-unprivileged)
-#   COMBO is one of:
-#     inline-unprivileged     inline router + unprivileged (userns) bb_chroot_helper
-#     inline-privileged       inline router + bb_chroot_helper_privileged (real chroot)
-#     sideloaded-unprivileged sideloaded router + fetcher sidecar + bb_chroot_helper
-#   (sideloaded + the privileged helper is intentionally unsupported: its
-#    chroot model can't safely reuse the fetcher's shared, cached roots.)
+# Usage: up.sh [MODE]   (default: inline)
+#   MODE is one of:
+#     inline      inline router + bb_chroot_helper
+#     sideloaded  sideloaded router + fetcher sidecar + bb_chroot_helper
 set -euo pipefail
 
-COMBO="${1:-inline-unprivileged}"
-case "${COMBO}" in
-  inline-unprivileged | inline-privileged | sideloaded-unprivileged) ;;
-  *) echo "usage: $0 [inline-unprivileged|inline-privileged|sideloaded-unprivileged]" >&2 && exit 2 ;;
+MODE="${1:-inline}"
+case "${MODE}" in
+  inline | sideloaded) ;;
+  *) echo "usage: $0 [inline|sideloaded]" >&2 && exit 2 ;;
 esac
 
 CLUSTER="${CLUSTER:-kind}"
@@ -75,8 +72,8 @@ for i in "${!TARS[@]}"; do
   kind load image-archive "${docker_tar}" --name "${CLUSTER}"
 done
 
-echo ">> Applying overlay '${COMBO}'"
-kubectl apply -k "${K8S_DIR}/overlays/${COMBO}"
+echo ">> Applying overlay '${MODE}'"
+kubectl apply -k "${K8S_DIR}/overlays/${MODE}"
 
 # Stable ConfigMap names mean a plain re-apply won't restart Pods on config-only
 # changes, and the Never-policy images need a restart to pick up a fresh load.
@@ -86,7 +83,7 @@ kubectl -n bb-e2e rollout status deploy --timeout=240s
 
 cat <<EOF
 
->> Cluster is up in '${COMBO}' mode.
+>> Cluster is up in '${MODE}' mode.
    Point a REv2 client at the frontend via:
      kubectl -n bb-e2e port-forward svc/frontend 8980:8980
      bazel buld --remote_executor=grpc://localhost:8980 --remote_instance_name=""

@@ -7,10 +7,6 @@ spec:
     spec:
       containers:
         - name: runner
-          # The userns helper doesn't need any privileges, so drop the base's
-          # privileged: true (which is there for the privileged helper).
-          securityContext:
-            privileged: false
           # bb_chroot_helper connects to the fetcher socket and bind-mounts the
           # materialized roots, both under this path. Its static settings come
           # from the ConfigMap; the router passes

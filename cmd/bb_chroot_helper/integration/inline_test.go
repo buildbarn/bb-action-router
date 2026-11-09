@@ -28,12 +28,8 @@ func TestInlineMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, mode := range rootModes {
-		t.Run(mode, func(t *testing.T) {
-			h := helper{rootMode: mode, config: config, dir: workDir}
-			h.expectProbe(t, "inline-input", "read-file", "input")
-			h.expectProbe(t, "write succeeded", "write-file", "output")
-			h.expectProbe(t, "from-docker-image", "read-file", "/etc/image_marker")
-		})
-	}
+	h := helper{config: config, dir: workDir}
+	h.expectProbe(t, "inline-input", "read-file", "input")
+	h.expectProbe(t, "write succeeded", "write-file", "output")
+	h.expectProbe(t, "from-docker-image", "read-file", "/etc/image_marker")
 }

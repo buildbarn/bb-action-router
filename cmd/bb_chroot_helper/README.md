@@ -1,9 +1,23 @@
 # bb_chroot_helper
-This tool runs actions in docker image roots in unprivileged containers. With `root-mode = "tmpfs"`, it supports concurrent
-actions by mounting a separate root for each action. The staging mount point defaults to `/var/action_root`.
-Sideloaded mode requires a `bb_docker_root_fetcher` socket to be available.
+This tool runs actions in docker image roots in unprivileged containers. Sideloaded mode requires a
+`bb_docker_root_fetcher` socket to be available.
 
-The default `root-mode = "overlay"` clears and reuses the staging directory, requiring one action at a time per runner.
+Each action's root is built in a slot: a numbered directory below the staging root (`/var/action_root` by default),
+locked with `flock` while the helper runs. A helper uses the first free slot it finds and only creates a new one when
+every slot is in use, so there are only ever as many slots as the most actions that ran at the same time. The lock is
+released by the kernel when the helper exits, however it exits, so slots are never leaked. Every directory in the
+staging root is treated as a slot, whatever its name. Slots are directories on the runner's filesystem rather than tmpfs
+mounts, so that the helper also works in containers that aren't allowed to mount tmpfs, such as ones confined by the
+SELinux `container_t` type.
+
+A slot only ever holds empty mount points and symlinks, which the next action to use it removes. A slot holding
+anything else, such as a non-empty directory, is skipped (with a warning) rather than cleared recursively.
+
+The helper creates the slot's contents as root, before dropping privileges, and only mounts on top of them from inside
+the user namespace. Root isn't mapped into the action's user namespace, so the slot can't be modified from there, even
+by an action that runs as root in it (the default `build-user`) and remounts its root read-write. That matters because
+processes started by an action can outlive it: the helper doesn't kill them, so they would otherwise be able to change
+the root of the next action to use the slot. Such processes lose their mounts when the next action clears the slot.
 
 # Keeping `/proc` available
 It may be surprising, but most processes will need `/proc/self/exe` to function correctly. This is for a variety of
@@ -13,7 +27,7 @@ mechanism when searching for native libraries to load.
 
 In an unprivileged container, a plain bind mount of `/proc` into a new root can fail because of
 [locked mounts](https://kinvolk.io/blog/2018/04/towards-unprivileged-container-builds/#what-are-locked-mounts)
-under `/proc`. A recursive bind copies these mounts as well, allowing `/proc` to remain available after `chroot`.
+under `/proc`. A recursive bind copies these mounts as well, allowing `/proc` to remain available in the new root.
 
 # Overview
 
@@ -26,14 +40,19 @@ The runner and helper are static binaries and don't need any libraries in `/lib`
 
 When invoked, the helper does the following:
  - obtains the image root, from the fetcher in sideloaded mode,
- - creates the staging mount point at `staging-root` if needed,
+ - creates the staging directory at `staging-root` if needed and locks a slot in it, creating one if all of them are in
+   use,
+ - clears the slot and creates the mount points for the keep directories and the image's top-level entries in it,
  - unshares the user and mount namespaces, so that subsequent mounts are private to the action,
  - if needed, isolates the network by unsharing the network devices,
- - mounts tmpfs or clears and self-bind-mounts the staging directory, depending on `root-mode`,
- - bind-mounts the keep directories and image's top-level entries into it,
- - enters the new root with `chroot` and runs the original action command line.
+ - self-bind-mounts the slot and bind-mounts the keep directories and image's top-level entries into it,
+ - makes the slot the root with `pivot_root`, detaches the runner's root and runs the original action command line.
 
 The bind mounts are cleaned up by the kernel when the helper's mount namespace exits.
+
+`pivot_root` is used rather than `chroot`, since an action that runs as root inside the user namespace (the default
+`build-user`) could escape a `chroot` and would then see the runner's filesystem, including the fetcher's socket and the
+slots of other actions. Once the runner's root is detached it is no longer reachable from the action's mount namespace.
 
 # Configuration
 
@@ -61,11 +80,8 @@ config file:
 # Path of the bb_docker_root_fetcher socket. Unused in inline mode.
 fetcher-socket = "/var/run/fetcher/fetcher.sock"
 
-# Filesystem setup: overlay (default, serialized actions) or tmpfs (concurrent actions).
-root-mode = "overlay"
-
-# Dedicated staging directory, cleared in overlay mode. Its parent must exist and be
-# writable if the mount point does not. The path must be normalized, absolute,
+# Dedicated staging directory holding the slots. Its parent must exist and be
+# writable if the directory does not. The path must be normalized, absolute,
 # and below a top-level directory.
 staging-root = "/var/action_root"
 

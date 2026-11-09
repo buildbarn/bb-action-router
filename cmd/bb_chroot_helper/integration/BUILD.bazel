@@ -15,7 +15,10 @@ go_library(
         "probes.go",
     ],
     importpath = "github.com/buildbarn/bb-action-router/cmd/bb_chroot_helper/integration",
+    # Like the helper, the tests use Linux namespaces and mounts.
+    target_compatible_with = ["@platforms//os:linux"],
     visibility = ["//visibility:private"],
+    deps = ["@org_golang_x_sys//unix"],
 )
 
 # Needs root and modifies the filesystem, so it only runs inside the image
@@ -28,12 +31,13 @@ go_test(
         "inline_test.go",
         "main_test.go",
         "network_test.go",
-        "overlay_test.go",
+        "slot_test.go",
         "staging_test.go",
     ],
     embed = [":integration"],
     pure = "on",
     tags = ["manual"],
+    target_compatible_with = ["@platforms//os:linux"],
 )
 
 image_layer(

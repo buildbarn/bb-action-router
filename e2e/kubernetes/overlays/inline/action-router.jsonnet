@@ -41,10 +41,16 @@
           { anonymous: { registry: 'index.docker.io' } },
         ],
       } },
-      // Prepend the privileged helper, which performs a real chroot into the
-      // merged input root. The '--' terminates the helper's own arguments, so
-      // the action's command line can't be read as helper arguments.
-      { editCommand: { prependArguments: ['/bin/bb_chroot_helper_privileged', '--'] } },
+      // Prepend the helper. With no --docker-image-ref
+      // it treats the merged input root as the image root. Its static settings
+      // come from the config file mounted into the runner container from the
+      // bb-chroot-helper-config ConfigMap. The '--' terminates the helper's own
+      // flags, so the action's command line can't be read as helper flags.
+      { editCommand: { prependArguments: [
+        '/bin/bb_chroot_helper',
+        '--config=/etc/bb_chroot_helper/config.toml',
+        '--',
+      ] } },
       // Retarget the worker platform queue.
       { editPlatformProperty: {
         remove: ['ContainerBaseImage', 'requires-network', 'requires-external', 'Flavor', 'Version'],
