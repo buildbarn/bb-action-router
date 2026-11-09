@@ -89,7 +89,7 @@ cat <<EOF
 >> Cluster is up in '${COMBO}' mode.
    Point a REv2 client at the frontend via:
      kubectl -n bb-e2e port-forward svc/frontend 8980:8980
-     bazel buld --remote_executor=grpc://localhost:8980 --remote_instance_name=""
+     bazel test --remote_executor=grpc://localhost:8980 --remote_instance_name="" //...
    Inspect: kubectl -n bb-e2e get pods
    Logs:    kubectl -n bb-e2e logs deploy/action-router
             kubectl -n bb-e2e logs deploy/executor -c runner
