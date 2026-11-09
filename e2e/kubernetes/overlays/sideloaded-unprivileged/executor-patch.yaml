@@ -18,7 +18,13 @@ spec:
           volumeMounts:
             - { name: fetcher, mountPath: /var/fetcher }
             - { name: chroot-helper-config, mountPath: /etc/bb_chroot_helper, readOnly: true }
+      initContainers:
         - name: root-fetcher
+          # Native sidecar (https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/):
+          # an init container with restartPolicy: Always. It starts before
+          # worker and runner, keeps running alongside them, and is only
+          # terminated after they have exited.
+          restartPolicy: Always
           image: bb_docker_root_fetcher:e2e
           imagePullPolicy: Never
           args: ["/config-fetcher/fetcher.jsonnet"]
