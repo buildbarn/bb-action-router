@@ -1,5 +1,5 @@
 load("@com_github_buildbarn_bb_storage//tools:container.bzl", "container_push_official", "multiarch_go_image")
-load("@rules_go//go:def.bzl", "go_binary", "go_library")
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 load("@rules_img//img:image.bzl", "image_from_binary")
 load("@rules_img//img:load.bzl", "image_load")
 load("@rules_img//img:push.bzl", "image_push")
@@ -36,6 +36,20 @@ go_binary(
     embed = [":bb_docker_action_router_lib"],
     pure = "on",
     visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "bb_docker_action_router_test",
+    srcs = ["main_test.go"],
+    embed = [":bb_docker_action_router_lib"],
+    deps = [
+        "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
+        "@com_github_buildbarn_bb_storage//pkg/auth",
+        "@com_github_buildbarn_bb_storage//pkg/proto/auth",
+        "@org_golang_google_protobuf//proto",
+        "@org_golang_google_protobuf//types/known/anypb",
+        "@org_golang_google_protobuf//types/known/structpb",
+    ],
 )
 
 multiarch_go_image(

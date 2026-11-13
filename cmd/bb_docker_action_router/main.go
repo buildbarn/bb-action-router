@@ -171,16 +171,15 @@ func extractInvocationKeys(ctx context.Context, requestMetadata *remoteexecution
 	}
 	invocationKeys = append(invocationKeys, authKey)
 
-	// ..., then group by build invocation.
-	if requestMetadata != nil {
-		toolInvocationKey, err := anypb.New(&remoteexecution.RequestMetadata{
-			ToolInvocationId: requestMetadata.GetToolInvocationId(),
-		})
-		if err != nil {
-			return nil, util.StatusWrap(err, "Failed to create tool invocation ID key")
-		}
-		invocationKeys = append(invocationKeys, toolInvocationKey)
+	// ..., then group by build invocation. An empty ID keeps operations without
+	// request metadata from queuing directly under the authentication group.
+	toolInvocationKey, err := anypb.New(&remoteexecution.RequestMetadata{
+		ToolInvocationId: requestMetadata.GetToolInvocationId(),
+	})
+	if err != nil {
+		return nil, util.StatusWrap(err, "Failed to create tool invocation ID key")
 	}
+	invocationKeys = append(invocationKeys, toolInvocationKey)
 
 	return invocationKeys, nil
 }
