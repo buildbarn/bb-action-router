@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -226,7 +227,7 @@ func (m *materializer) buildRoot(ctx context.Context, fetchCoordinator *rootFetc
 }
 
 // populateRoot fetches the tree at `rootDigest` into `dirPath` and ensures
-// the mountpoint directories required by the chroot helper exist.
+// the mount points required by the chroot helper exist.
 func (materializer) populateRoot(ctx context.Context, dirPath string, fetchCoordinator *rootFetcher, rootDigest bb_digest.Digest) error {
 	dir, err := filesystem.NewLocalDirectory(path.LocalFormat.NewParser(dirPath))
 	if err != nil {
@@ -259,7 +260,46 @@ func (materializer) populateRoot(ctx context.Context, dirPath string, fetchCoord
 			return fmt.Errorf("ensure %s exists: %w", p, err)
 		}
 	}
+	if err := ensureHostsFile(dirPath); err != nil {
+		return fmt.Errorf("prepare /etc/hosts: %w", err)
+	}
 	return nil
+}
+
+// ensureHostsFile provides loopback entries and a bind mount destination when
+// the image has no /etc/hosts. The helper decides whether to bind its own file.
+func ensureHostsFile(dirPath string) error {
+	root, err := os.OpenRoot(dirPath)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+
+	if err := root.Mkdir("etc", 0o755); errors.Is(err, os.ErrExist) {
+		info, err := root.Lstat("etc")
+		if err != nil {
+			return err
+		}
+		// Only add a mount point under an ordinary image directory.
+		if !info.IsDir() {
+			return nil
+		}
+	} else if err != nil {
+		return err
+	}
+	file, err := root.OpenFile("etc/hosts", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if errors.Is(err, os.ErrExist) {
+		// Preserve existing entries, including symlinks interpreted inside the chroot.
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := file.WriteString("127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n"); err != nil {
+		file.Close()
+		return err
+	}
+	return file.Close()
 }
 
 func main() {
