@@ -48,11 +48,14 @@ When invoked, the helper does the following:
  - self-bind-mounts the slot and bind-mounts the keep directories and image's top-level entries into it,
  - makes the slot the root with `pivot_root`, detaches the runner's root and runs the original action command line.
 
-The bind mounts are cleaned up by the kernel when the helper's mount namespace exits.
+The bind mounts are cleaned up by the kernel when the helper's mount namespace exits.  Once the runner's root is
+detached it is no longer reachable from the action's mount namespace.
 
-`pivot_root` is used rather than `chroot`, since an action that runs as root inside the user namespace (the default
-`build-user`) could escape a `chroot` and would then see the runner's filesystem, including the fetcher's socket and the
-slots of other actions. Once the runner's root is detached it is no longer reachable from the action's mount namespace.
+If running multiple actions in the same runner container/VM note that the isolation provided by the helper is intended
+to prevent actions accidentally clobbering a different actions input or state and it is not intended to be a security
+mechanism nor does it prevent deliberate attempts at communication across processes (for example /proc is still shared).
+If you require stronger isolation we recommend running a single-threaded runner in a separate container rather than
+relying on the chroot helper.
 
 # Configuration
 
