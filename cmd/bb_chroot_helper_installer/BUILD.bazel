@@ -27,19 +27,10 @@ copy_file(
     out = "bb_chroot_helper",
 )
 
-copy_file(
-    name = "bb_chroot_helper_privileged_copy",
-    src = "//cmd/bb_chroot_helper_privileged",
-    out = "bb_chroot_helper_privileged",
-)
-
 go_library(
     name = "bb_chroot_helper_installer_lib",
     srcs = ["main.go"],
-    embedsrcs = [
-        "bb_chroot_helper",
-        "bb_chroot_helper_privileged",
-    ],
+    embedsrcs = ["bb_chroot_helper"],
     importpath = "github.com/buildbarn/bb-action-router/cmd/bb_chroot_helper_installer",
     visibility = ["//visibility:private"],
 )

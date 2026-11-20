@@ -60,7 +60,6 @@ TEST(Config, Defaults) {
   EXPECT_EQ(r.config.docker_image_ref, "");
   EXPECT_EQ(r.config.fetcher_socket, "/var/run/fetcher/fetcher.sock");
   EXPECT_EQ(r.config.staging_root, "/var/action_root");
-  EXPECT_EQ(r.config.root_mode, RootMode::Overlay);
   EXPECT_FALSE(r.config.isolate_network);
   EXPECT_EQ(r.config.build_uid, 0);
   EXPECT_EQ(r.config.build_gid, 0);
@@ -115,7 +114,6 @@ TEST(Config, RepeatedScalarFlagIsRejected) {
   for (const std::vector<std::string>& flags : std::vector<std::vector<std::string>>{
            {"--network-isolation", "--no-network-isolation"},
            {"--fetcher-socket=/a.sock", "--fetcher-socket=/b.sock"},
-           {"--root-mode=overlay", "--root-mode=tmpfs"},
            {"--build-user=1:1", "--build-user=2:2"},
        }) {
     std::vector<std::string> args = flags;
@@ -180,7 +178,6 @@ TEST(Config, ConfigFile) {
   ParseResult r = ParseFile(R"(
 # A comment.
 fetcher-socket = "/var/fetcher/fetcher.sock"
-root-mode = "tmpfs"
 staging-root = "/tmp/bb_chroot_helper"
 network-isolation = true
 keep-dirs = ["nix", "toolchains"]
@@ -191,7 +188,6 @@ host-user = "65534:65534"
   ASSERT_TRUE(r.ok) << r.error;
   EXPECT_EQ(r.config.fetcher_socket, "/var/fetcher/fetcher.sock");
   EXPECT_EQ(r.config.staging_root, "/tmp/bb_chroot_helper");
-  EXPECT_EQ(r.config.root_mode, RootMode::Tmpfs);
   EXPECT_TRUE(r.config.isolate_network);
   EXPECT_EQ(r.config.build_uid, 1000);
   EXPECT_EQ(r.config.build_gid, 1001);
@@ -235,21 +231,19 @@ TEST(Config, SingleValuesAndSingleElementArrays) {
 TEST(Config, FlagsOverrideConfigFile) {
   std::string path = WriteConfig(R"(
 fetcher-socket = "/from-config.sock"
-root-mode = "tmpfs"
 staging-root = "/var/from-config"
 network-isolation = true
 build-user = "1000:1000"
 etc-files = ["hosts"]
 )");
   ParseResult r = Parse({"--build-user=5:6", "--config=" + path, "--fetcher-socket=/from-flag.sock",
-                         "--staging-root=/tmp/from-flag", "--root-mode=overlay", "--no-network-isolation",
-                         "--etc-files=resolv.conf,hostname", "--", "true"});
+                         "--staging-root=/tmp/from-flag", "--no-network-isolation", "--etc-files=resolv.conf,hostname",
+                         "--", "true"});
   ASSERT_TRUE(r.ok) << r.error;
   EXPECT_EQ(r.config.build_uid, 5);
   EXPECT_EQ(r.config.build_gid, 6);
   EXPECT_EQ(r.config.fetcher_socket, "/from-flag.sock");
   EXPECT_EQ(r.config.staging_root, "/tmp/from-flag");
-  EXPECT_EQ(r.config.root_mode, RootMode::Overlay);
   EXPECT_FALSE(r.config.isolate_network);
   // A list given as a flag replaces the file's list rather than merging with it.
   EXPECT_EQ(r.config.etc_files, std::vector<std::string>({"resolv.conf", "hostname"}));
@@ -260,7 +254,6 @@ etc-files = ["hosts"]
   EXPECT_EQ(r.config.build_uid, 1000);
   EXPECT_EQ(r.config.fetcher_socket, "/from-config.sock");
   EXPECT_EQ(r.config.staging_root, "/var/from-config");
-  EXPECT_EQ(r.config.root_mode, RootMode::Tmpfs);
   EXPECT_TRUE(r.config.isolate_network);
 }
 
@@ -287,7 +280,6 @@ INSTANTIATE_TEST_SUITE_P(
         // Flags that only make sense on the command line.
         ConfigFileErrorCase{"docker-image-ref = \"busybox\"\n", "not allowed in a configuration file"},
         ConfigFileErrorCase{"config = \"/other.toml\"\n", "not allowed in a configuration file"},
-        ConfigFileErrorCase{"root-mode = \"chroot\"\n", "chroot not in {overlay,tmpfs}"},
         ConfigFileErrorCase{"network-isolation = \"maybe\"\n", "network-isolation"},
         // A half-specified user would silently fall back to id 0.
         ConfigFileErrorCase{"build-user = \"1000\"\n", "want UID:GID"},
@@ -301,7 +293,6 @@ INSTANTIATE_TEST_SUITE_P(
         // A single-valued option given several values, either as an array
         // or by repeating the key.
         ConfigFileErrorCase{"fetcher-socket = [\"/a.sock\", \"/b.sock\"]\n", "--fetcher-socket: At most 1"},
-        ConfigFileErrorCase{"root-mode = [\"overlay\", \"tmpfs\"]\n", "--root-mode: At most 1"},
         ConfigFileErrorCase{"network-isolation = [true, false]\n", "too many inputs for a flag"},
         ConfigFileErrorCase{"build-user = [\"1:1\", \"2:2\"]\n", "--build-user: At most 1"},
         ConfigFileErrorCase{"staging-root = \"/var/a\"\nstaging-root = \"/var/b\"\n", "--staging-root: At most 1"}));
@@ -361,17 +352,6 @@ TEST(Config, HostUserRootIsRejected) {
   EXPECT_TRUE(validate_config(r.config, &error)) << error;
 }
 
-TEST(Config, RootModeValidation) {
-  for (const char* mode : {"overlay", "tmpfs", "", "unknown"}) {
-    ParseResult r = Parse({std::string("--root-mode=") + mode, "--", "true"});
-    bool expected = std::string(mode) == "overlay" || std::string(mode) == "tmpfs";
-    EXPECT_EQ(r.ok, expected) << mode << ": " << r.error;
-    if (expected) {
-      EXPECT_EQ(r.config.root_mode, std::string(mode) == "overlay" ? RootMode::Overlay : RootMode::Tmpfs);
-    }
-  }
-}
-
 TEST(Config, InvalidStagingRootIsRejected) {
   for (const char* staging_root : {"relative/path", "/stage", "/var/../stage", "/var//stage"}) {
     ParseResult r = Parse({std::string("--staging-root=") + staging_root, "--", "true"});
@@ -387,8 +367,8 @@ TEST(Config, InvalidStagingRootIsRejected) {
 TEST(Config, UsageMentionsEveryFlag) {
   std::string text = usage();
   for (const char* flag :
-       {"--config", "--docker-image-ref", "--fetcher-socket", "--staging-root", "--root-mode", "--build-user",
-        "--host-user", "--network-isolation", "--no-network-isolation", "--keep-dirs", "--etc-files"}) {
+       {"--config", "--docker-image-ref", "--fetcher-socket", "--staging-root", "--build-user", "--host-user",
+        "--network-isolation", "--no-network-isolation", "--keep-dirs", "--etc-files"}) {
     EXPECT_THAT(text, HasSubstr(flag));
   }
   EXPECT_THAT(text, HasSubstr("-- <command> [args...]"));

@@ -3,6 +3,7 @@ package integration
 import (
 	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -10,11 +11,16 @@ import (
 // from the command line, so the helper's defaults apply.
 type helper struct {
 	// Sideloaded image served by the mock fetcher. Empty selects inline mode.
-	image          string
-	rootMode       string
+	image string
+	// UID:GID the action runs as. Defaults to a non-root user, which the
+	// images' /etc/passwd has an entry for.
+	buildUser      string
 	isolateNetwork bool
 	stagingRoot    string
 	config         string
+	// Umask the helper is started with. Zero leaves the test's umask alone.
+	// The umask is process-wide, so don't combine this with concurrent runs.
+	umask int
 	// Working directory of the helper, which inline mode derives the image
 	// root from.
 	dir string
@@ -23,14 +29,13 @@ type helper struct {
 // run runs a probe through the helper, returning the combined output of the
 // helper and the probe.
 func (h helper) run(probe string, args ...string) (string, error) {
-	// The images' /etc/passwd has a matching entry for this non-default
-	// build user.
-	argv := []string{"--build-user=1000:1000"}
+	buildUser := h.buildUser
+	if buildUser == "" {
+		buildUser = "1000:1000"
+	}
+	argv := []string{"--build-user=" + buildUser}
 	if h.image != "" {
 		argv = append(argv, "--docker-image-ref="+h.image, "--fetcher-socket="+fetcherSocket)
-	}
-	if h.rootMode != "" {
-		argv = append(argv, "--root-mode="+h.rootMode)
 	}
 	if h.isolateNetwork {
 		argv = append(argv, "--network-isolation")
@@ -46,6 +51,10 @@ func (h helper) run(probe string, args ...string) (string, error) {
 	argv = append(argv, "--", selfPath, "probe", probe)
 	argv = append(argv, args...)
 
+	if h.umask != 0 {
+		prevUmask := syscall.Umask(h.umask)
+		defer syscall.Umask(prevUmask)
+	}
 	cmd := exec.Command(helperPath, argv...)
 	cmd.Dir = h.dir
 	out, err := cmd.CombinedOutput()
