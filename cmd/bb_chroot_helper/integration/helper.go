@@ -3,6 +3,7 @@ package integration
 import (
 	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -17,6 +18,9 @@ type helper struct {
 	isolateNetwork bool
 	stagingRoot    string
 	config         string
+	// Umask the helper is started with. Zero leaves the test's umask alone.
+	// The umask is process-wide, so don't combine this with concurrent runs.
+	umask int
 	// Working directory of the helper, which inline mode derives the image
 	// root from.
 	dir string
@@ -47,6 +51,10 @@ func (h helper) run(probe string, args ...string) (string, error) {
 	argv = append(argv, "--", selfPath, "probe", probe)
 	argv = append(argv, args...)
 
+	if h.umask != 0 {
+		prevUmask := syscall.Umask(h.umask)
+		defer syscall.Umask(prevUmask)
+	}
 	cmd := exec.Command(helperPath, argv...)
 	cmd.Dir = h.dir
 	out, err := cmd.CombinedOutput()

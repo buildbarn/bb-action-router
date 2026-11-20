@@ -33,6 +33,7 @@ go_test(
         "network_test.go",
         "slot_test.go",
         "staging_test.go",
+        "umask_test.go",
     ],
     embed = [":integration"],
     pure = "on",

@@ -546,6 +546,25 @@ int main(int argc, char** argv) {
   if (ec || staging_root.parent_path() == "/" || !fs::is_directory(staging_root)) {
     die("invalid staging root " + config.staging_root);
   }
+  // The host user has to be able to traverse the staging root to mount on the
+  // slots in it.
+  struct stat staging_stat;
+  if (stat(staging_root.c_str(), &staging_stat) != 0) {
+    die_errno("stat " + staging_root.string());
+  }
+  // Only try to chmod if it's necessary, otherwise we might incorrectly
+  // fail if we have permission to scan the directory but don't have permission
+  // to chmod it.
+  mode_t traverse = S_IXOTH;
+  if (static_cast<int>(staging_stat.st_uid) == config.host_uid) {
+    traverse = S_IXUSR;
+  } else if (static_cast<int>(staging_stat.st_gid) == config.host_gid) {
+    traverse = S_IXGRP;
+  }
+  if ((staging_stat.st_mode & traverse) == 0 && chmod(staging_root.c_str(), 0755) != 0) {
+    die_errno("The host user can't list contents of the staging root " + staging_root.string() + " and " +
+              "chmod 0755 on it failed");
+  }
   for (const auto& name : config.keep_list) {
     auto src = "/" + name;
     if (!fs::exists(src)) {
